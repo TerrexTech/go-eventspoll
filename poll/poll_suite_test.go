@@ -12,8 +12,7 @@ import (
 	"github.com/Shopify/sarama"
 	"github.com/TerrexTech/go-commonutils/commonutil"
 	"github.com/TerrexTech/go-eventstore-models/model"
-	"github.com/TerrexTech/go-kafkautils/consumer"
-	"github.com/TerrexTech/go-kafkautils/producer"
+	"github.com/TerrexTech/go-kafkautils/kafka"
 	"github.com/TerrexTech/go-mongoutils/mongo"
 	"github.com/TerrexTech/uuuid"
 	"github.com/joho/godotenv"
@@ -37,9 +36,12 @@ func TestPoll(t *testing.T) {
 	missingVar, err := commonutil.ValidateEnv(
 		"KAFKA_BROKERS",
 		"KAFKA_CONSUMER_EVENT_GROUP",
+
 		"KAFKA_CONSUMER_EVENT_TOPIC",
 		"KAFKA_CONSUMER_EVENT_QUERY_GROUP",
 		"KAFKA_CONSUMER_EVENT_QUERY_TOPIC",
+
+		"KAFKA_PRODUCER_EVENT_TOPIC",
 		"KAFKA_PRODUCER_EVENT_QUERY_TOPIC",
 		"KAFKA_PRODUCER_RESPONSE_TOPIC",
 
@@ -60,6 +62,39 @@ func TestPoll(t *testing.T) {
 	RunSpecs(t, "Poll Suite")
 }
 
+// Handler for Consumer Messages
+type msgHandler struct {
+	msgCallback func(*sarama.ConsumerMessage) bool
+}
+
+func (*msgHandler) Setup(sarama.ConsumerGroupSession) error {
+	log.Println("Initializing Kafka MsgHandler")
+	return nil
+}
+
+func (*msgHandler) Cleanup(sarama.ConsumerGroupSession) error {
+	log.Println("Closing Kafka MsgHandler")
+	return nil
+}
+
+func (m *msgHandler) ConsumeClaim(
+	session sarama.ConsumerGroupSession,
+	claim sarama.ConsumerGroupClaim,
+) error {
+	if m.msgCallback == nil {
+		return errors.New("msgCallback cannot be nil")
+	}
+	for msg := range claim.Messages() {
+		session.MarkMessage(msg, "")
+
+		val := m.msgCallback(msg)
+		if val {
+			return nil
+		}
+	}
+	return errors.New("required value not found")
+}
+
 type item struct {
 	ID         objectid.ObjectID `bson:"_id,omitempty" json:"_id,omitempty"`
 	Word       string            `bson:"word,omitempty" json:"word,omitempty"`
@@ -72,7 +107,7 @@ func mockEvent(
 	topic string,
 	action string,
 ) *model.Event {
-	eventUUID, err := uuuid.NewV4()
+	eventUUID, err := uuuid.NewV1()
 	Expect(err).ToNot(HaveOccurred())
 	userUUID, err := uuuid.NewV4()
 	Expect(err).ToNot(HaveOccurred())
@@ -86,7 +121,7 @@ func mockEvent(
 		Data:          []byte("test-data"),
 		Timestamp:     time.Now(),
 		UserUUID:      userUUID,
-		UUID:          eventUUID,
+		TimeUUID:      eventUUID,
 		Version:       0,
 		YearBucket:    2018,
 	}
@@ -95,8 +130,8 @@ func mockEvent(
 	testEventMsg, err := json.Marshal(mockEvent)
 	Expect(err).ToNot(HaveOccurred())
 
-	input <- producer.CreateMessage(topic, testEventMsg)
-	log.Printf("====> Produced mock %s-event: %s", action, cid.String())
+	input <- kafka.CreateMessage(topic, testEventMsg)
+	log.Printf("====> Produced mock %s-event: %s on topic: %s", action, eventUUID, topic)
 	return mockEvent
 }
 
@@ -110,7 +145,6 @@ func channelTest(
 	ioConfig.ReadConfig.EnableInsert = false
 	ioConfig.ReadConfig.EnableUpdate = false
 	ioConfig.ReadConfig.EnableQuery = false
-	ioConfig.ReadConfig.EnableInvalid = false
 
 	switch channel {
 	case "delete":
@@ -121,8 +155,6 @@ func channelTest(
 		ioConfig.ReadConfig.EnableUpdate = true
 	case "query":
 		ioConfig.ReadConfig.EnableQuery = true
-	case "invalid":
-		ioConfig.ReadConfig.EnableInvalid = true
 	}
 
 	eventsIO, err := Init(ioConfig)
@@ -131,7 +163,6 @@ func channelTest(
 	insertEvent := mockEvent(eventProdInput, eventsTopic, "insert")
 	updateEvent := mockEvent(eventProdInput, eventsTopic, "update")
 	deleteEvent := mockEvent(eventProdInput, eventsTopic, "delete")
-	invalidEvent := mockEvent(eventProdInput, eventsTopic, "invalid")
 	queryEvent := mockEvent(eventProdInput, eventsTopic, "query")
 
 	log.Printf(
@@ -149,8 +180,8 @@ func channelTest(
 			Expect(eventResp.Error).ToNot(HaveOccurred())
 
 			log.Println("An Event appeared on insert channel")
-			if e.CorrelationID.String() == insertEvent.CorrelationID.String() {
-				log.Println("A matching Event appeared on insert channel")
+			if e.CorrelationID == insertEvent.CorrelationID {
+				log.Println("==> A matching Event appeared on insert channel")
 				if channel == "insert" {
 					channelSuccess = true
 					return
@@ -166,8 +197,8 @@ func channelTest(
 			Expect(eventResp.Error).ToNot(HaveOccurred())
 
 			log.Println("An Event appeared on update channel")
-			if e.CorrelationID.String() == updateEvent.CorrelationID.String() {
-				log.Println("A matching Event appeared on update channel")
+			if e.CorrelationID == updateEvent.CorrelationID {
+				log.Println("==> A matching Event appeared on update channel")
 				if channel == "update" {
 					channelSuccess = true
 					return
@@ -183,8 +214,10 @@ func channelTest(
 			Expect(eventResp.Error).ToNot(HaveOccurred())
 
 			log.Println("An Event appeared on delete channel")
-			if e.CorrelationID.String() == deleteEvent.CorrelationID.String() {
-				log.Println("A matching Event appeared on delete channel")
+			log.Println(e.CorrelationID)
+			log.Println(deleteEvent.CorrelationID)
+			if e.CorrelationID == deleteEvent.CorrelationID {
+				log.Println("==> A matching Event appeared on delete channel")
 				if channel == "delete" {
 					channelSuccess = true
 					return
@@ -200,8 +233,8 @@ func channelTest(
 			Expect(eventResp.Error).ToNot(HaveOccurred())
 
 			log.Println("An Event appeared on query channel")
-			if e.CorrelationID.String() == queryEvent.CorrelationID.String() {
-				log.Println("A matching Event appeared on query channel")
+			if e.CorrelationID == queryEvent.CorrelationID {
+				log.Println("==> A matching Event appeared on query channel")
 				if channel == "query" {
 					channelSuccess = true
 					return
@@ -211,25 +244,8 @@ func channelTest(
 		}
 	}()
 
-	go func() {
-		for eventResp := range eventsIO.Invalid() {
-			e := eventResp.Event
-			Expect(eventResp.Error).ToNot(HaveOccurred())
-
-			log.Println("An Event appeared on invalid channel")
-			if e.CorrelationID.String() == invalidEvent.CorrelationID.String() {
-				log.Println("A matching Event appeared on invalid channel")
-				if channel == "invalid" {
-					channelSuccess = true
-					return
-				}
-				noExtraReads = false
-			}
-		}
-	}()
-
 	// Allow additional time for Kafka setups and warmups
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 resultTimeoutLoop:
@@ -243,6 +259,7 @@ resultTimeoutLoop:
 			}
 		}
 	}
+
 	eventsIO.Close()
 	log.Println("===> Channel: "+channel, eventsTopic)
 	log.Printf("ChannelSuccess: %t", channelSuccess)
@@ -256,10 +273,6 @@ var _ = Describe("Poll Suite", func() {
 
 		eventsTopic    string
 		eventProdInput chan<- *sarama.ProducerMessage
-		deleteEvent    *model.Event
-		insertEvent    *model.Event
-		updateEvent    *model.Event
-		invalidEvent   *model.Event
 
 		ioConfig IOConfig
 	)
@@ -342,9 +355,11 @@ var _ = Describe("Poll Suite", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// ==========> Kafka Setup
-		kafkaBrokers := commonutil.ParseHosts(
+		kafkaBrokers = *commonutil.ParseHosts(
 			os.Getenv("KAFKA_BROKERS"),
 		)
+		eventsTopic = os.Getenv("KAFKA_PRODUCER_EVENT_TOPIC")
+
 		consumerEventGroup := os.Getenv("KAFKA_CONSUMER_EVENT_GROUP")
 		consumerEventQueryGroup := os.Getenv("KAFKA_CONSUMER_EVENT_QUERY_GROUP")
 		consumerEventTopic := os.Getenv("KAFKA_CONSUMER_EVENT_TOPIC")
@@ -353,7 +368,7 @@ var _ = Describe("Poll Suite", func() {
 		producerResponseTopic := os.Getenv("KAFKA_PRODUCER_RESPONSE_TOPIC")
 
 		kc := KafkaConfig{
-			Brokers:                 *kafkaBrokers,
+			Brokers:                 kafkaBrokers,
 			ConsumerEventGroup:      consumerEventGroup,
 			ConsumerEventQueryGroup: consumerEventQueryGroup,
 			ConsumerEventTopic:      consumerEventTopic,
@@ -368,6 +383,14 @@ var _ = Describe("Poll Suite", func() {
 			MongoCollection:    collection,
 			MongoFailThreshold: int16(mongoFailThreshold),
 		}
+
+		prodConfig := &kafka.ProducerConfig{
+			KafkaBrokers: kafkaBrokers,
+		}
+		log.Println("Creating Kafka mock-event Producer")
+		p, err := kafka.NewProducer(prodConfig)
+		Expect(err).ToNot(HaveOccurred())
+		eventProdInput = p.Input()
 	})
 
 	It("should return error if AggregateID is not specified", func() {
@@ -488,166 +511,148 @@ var _ = Describe("Poll Suite", func() {
 		ioConfig.ReadConfig = rc
 	})
 
-	Specify("Mock events are produced", func() {
-		kafkaBrokers = []string{"kafka:9092"} // commonutil.ParseHosts(os.Getenv("KAFKA_BROKERS"))
-		eventsTopic = "event.rns_eventstore.events"
+	// Context("Events are produced", func() {
+	Specify("Events should appear on their respective channel", func() {
+		insertEvent := mockEvent(eventProdInput, eventsTopic, "insert")
+		updateEvent := mockEvent(eventProdInput, eventsTopic, "update")
+		deleteEvent := mockEvent(eventProdInput, eventsTopic, "delete")
 
-		prodConfig := &producer.Config{
-			KafkaBrokers: kafkaBrokers,
+		log.Println(
+			"Checking if the event-channels received the event, " +
+				"with timeout of 20 seconds",
+		)
+
+		ioConfig.ReadConfig = ReadConfig{
+			EnableDelete: true,
+			EnableInsert: true,
+			EnableUpdate: true,
+			EnableQuery:  false,
 		}
-		log.Println("Creating Kafka mock-event Producer")
-		p, err := producer.New(prodConfig)
-		eventProdInput, err = p.Input()
+
+		eventsIO, err := Init(ioConfig)
 		Expect(err).ToNot(HaveOccurred())
 
-		insertEvent = mockEvent(eventProdInput, eventsTopic, "insert")
-		updateEvent = mockEvent(eventProdInput, eventsTopic, "update")
-		deleteEvent = mockEvent(eventProdInput, eventsTopic, "delete")
-		invalidEvent = mockEvent(eventProdInput, eventsTopic, "invalid")
-	})
+		insertSuccess := false
+		updateSuccess := false
+		deleteSuccess := false
 
-	Context("Events are produced", func() {
-		Specify("Events should appear on their respective channel", func() {
-			log.Println(
-				"Checking if the event-channels received the event, " +
-					"with timeout of 20 seconds",
-			)
-
-			ioConfig.ReadConfig = ReadConfig{
-				EnableDelete:  true,
-				EnableInsert:  true,
-				EnableUpdate:  true,
-				EnableInvalid: true,
-				EnableQuery:   false,
-			}
-
-			eventsIO, err := Init(ioConfig)
-			Expect(err).ToNot(HaveOccurred())
-
-			insertSuccess := false
-			updateSuccess := false
-			deleteSuccess := false
-			invalidSuccess := false
-
-			go func() {
-				for eventResp := range eventsIO.Insert() {
+		closeChan := make(chan struct{})
+		go func() {
+			for {
+				select {
+				case <-closeChan:
+					return
+				case eventResp := <-eventsIO.Insert():
 					e := eventResp.Event
 					Expect(eventResp.Error).ToNot(HaveOccurred())
 
 					log.Println("An Event appeared on insert channel")
-					if e.CorrelationID.String() == insertEvent.CorrelationID.String() {
+					if e.CorrelationID == insertEvent.CorrelationID {
 						log.Println("A matching Event appeared on insert channel")
 						insertSuccess = true
+						return
 					}
 				}
-			}()
+			}
+		}()
 
-			go func() {
-				for eventResp := range eventsIO.Update() {
+		go func() {
+			for {
+				select {
+				case <-closeChan:
+					return
+				case eventResp := <-eventsIO.Update():
 					e := eventResp.Event
 					Expect(eventResp.Error).ToNot(HaveOccurred())
 
 					log.Println("An Event appeared on update channel")
-					if e.CorrelationID.String() == updateEvent.CorrelationID.String() {
+					if e.CorrelationID == updateEvent.CorrelationID {
 						log.Println("A matching Event appeared on update channel")
 						updateSuccess = true
+						return
 					}
 				}
-			}()
+			}
+		}()
 
-			go func() {
-				for eventResp := range eventsIO.Delete() {
+		go func() {
+			for {
+				select {
+				case <-closeChan:
+					return
+				case eventResp := <-eventsIO.Delete():
 					e := eventResp.Event
 					Expect(eventResp.Error).ToNot(HaveOccurred())
 
 					log.Println("An Event appeared on delete channel")
-					if e.CorrelationID.String() == deleteEvent.CorrelationID.String() {
+					if e.CorrelationID == deleteEvent.CorrelationID {
 						log.Println("A matching Event appeared on delete channel")
 						deleteSuccess = true
-					}
-				}
-			}()
-
-			go func() {
-				for eventResp := range eventsIO.Invalid() {
-					e := eventResp.Event
-					Expect(eventResp.Error).ToNot(HaveOccurred())
-
-					log.Println("An Event appeared on invalid channel")
-					if e.CorrelationID.String() == invalidEvent.CorrelationID.String() {
-						log.Println("A matching Event appeared on invalid channel")
-						invalidSuccess = true
-					}
-				}
-			}()
-
-			// Allow additional time for Kafka setups and warmups
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			defer cancel()
-
-		resultTimeoutLoop:
-			for {
-				select {
-				case <-ctx.Done():
-					break resultTimeoutLoop
-				default:
-					if insertSuccess && deleteSuccess && updateSuccess && invalidSuccess {
-						break resultTimeoutLoop
+						return
 					}
 				}
 			}
+		}()
 
-			defer eventsIO.Close()
-			Expect(insertSuccess).To(BeTrue())
-			Expect(updateSuccess).To(BeTrue())
-			Expect(deleteSuccess).To(BeTrue())
-			Expect(invalidSuccess).To(BeTrue())
-		})
+		// Allow additional time for Kafka setups and warmups
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+
+	resultTimeoutLoop:
+		for {
+			select {
+			case <-ctx.Done():
+				closeChan <- struct{}{}
+				break resultTimeoutLoop
+			default:
+				if insertSuccess && deleteSuccess && updateSuccess {
+					break resultTimeoutLoop
+				}
+			}
+		}
+
+		eventsIO.Close()
+		Expect(insertSuccess).To(BeTrue())
+		Expect(updateSuccess).To(BeTrue())
+		Expect(deleteSuccess).To(BeTrue())
 	})
 
-	Describe("test individual channels", func() {
-		Specify("test delete channel", func() {
-			test := channelTest(eventProdInput, eventsTopic, ioConfig, "delete")
-			Expect(test).To(BeTrue())
-		})
+	Specify("test delete channel", func() {
+		test := channelTest(eventProdInput, eventsTopic, ioConfig, "delete")
+		Expect(test).To(BeTrue())
+	})
 
-		Specify("test insert channel", func() {
-			test := channelTest(eventProdInput, eventsTopic, ioConfig, "insert")
-			Expect(test).To(BeTrue())
-		})
+	Specify("test insert channel", func() {
+		test := channelTest(eventProdInput, eventsTopic, ioConfig, "insert")
+		Expect(test).To(BeTrue())
+	})
 
-		Specify("test update channel", func() {
-			test := channelTest(eventProdInput, eventsTopic, ioConfig, "update")
-			Expect(test).To(BeTrue())
-		})
+	Specify("test update channel", func() {
+		test := channelTest(eventProdInput, eventsTopic, ioConfig, "update")
+		Expect(test).To(BeTrue())
+	})
 
-		Specify("test query channel", func() {
-			test := channelTest(eventProdInput, eventsTopic, ioConfig, "query")
-			Expect(test).To(BeTrue())
-		})
-
-		Specify("test invalid channel", func() {
-			test := channelTest(eventProdInput, eventsTopic, ioConfig, "invalid")
-			Expect(test).To(BeTrue())
-		})
+	Specify("test query channel", func() {
+		test := channelTest(eventProdInput, eventsTopic, ioConfig, "query")
+		Expect(test).To(BeTrue())
 	})
 
 	Context("test response generation", func() {
 		var (
 			eventsIO     *EventsIO
-			respConsumer *consumer.Consumer
+			respConsumer *kafka.Consumer
 		)
 
 		BeforeEach(func() {
 			var err error
 
 			kfConfig := ioConfig.KafkaConfig
-			consCfg := &consumer.Config{
-				ConsumerGroup: "poll-test-group",
-				KafkaBrokers:  kafkaBrokers,
-				Topics:        []string{kfConfig.ProducerResponseTopic},
+			consCfg := &kafka.ConsumerConfig{
+				GroupName:    "poll-test-group",
+				KafkaBrokers: kafkaBrokers,
+				Topics:       []string{kfConfig.ProducerResponseTopic},
 			}
-			respConsumer, err = consumer.New(consCfg)
+			respConsumer, err = kafka.NewConsumer(consCfg)
 			Expect(err).ToNot(HaveOccurred())
 
 			go func() {
@@ -660,38 +665,48 @@ var _ = Describe("Poll Suite", func() {
 			ioConfig.ReadConfig.EnableInsert = true
 			ioConfig.ReadConfig.EnableUpdate = false
 			ioConfig.ReadConfig.EnableQuery = false
-			ioConfig.ReadConfig.EnableInvalid = false
 
 			eventsIO, err = Init(ioConfig)
 			Expect(err).ToNot(HaveOccurred())
 
-			insertEvent = mockEvent(eventProdInput, eventsTopic, "insert")
-			updateEvent = mockEvent(eventProdInput, eventsTopic, "update")
-			deleteEvent = mockEvent(eventProdInput, eventsTopic, "delete")
-			invalidEvent = mockEvent(eventProdInput, eventsTopic, "invalid")
+			// Here we again test that we only get responses on channels we have enabled
+			mockEvent(eventProdInput, eventsTopic, "insert")
+			mockEvent(eventProdInput, eventsTopic, "update")
+			mockEvent(eventProdInput, eventsTopic, "delete")
 		})
 
 		It("should produce the response", func(done Done) {
+			// Since we only enabled insert
 			eventResp := <-eventsIO.Insert()
 			event := eventResp.Event
 			kr := &model.KafkaResponse{
 				AggregateID:   event.AggregateID,
 				CorrelationID: event.CorrelationID,
+				UUID:          event.TimeUUID,
 			}
 			eventsIO.ProduceResult() <- kr
+			eventsIO.Close()
 
-			for msg := range respConsumer.Messages() {
+			msgCallback := func(msg *sarama.ConsumerMessage) bool {
 				log.Println("A Response was received on response channel")
 				kr := &model.KafkaResponse{}
 				err := json.Unmarshal(msg.Value, kr)
 				Expect(err).ToNot(HaveOccurred())
 
-				if kr.CorrelationID.String() == event.CorrelationID.String() {
+				cidMatch := kr.CorrelationID == event.CorrelationID
+				uuidMatch := kr.UUID == event.TimeUUID
+				if uuidMatch && cidMatch {
 					log.Println("The response matches")
 					close(done)
-					break
+					return true
 				}
+				return false
 			}
-		}, 10)
+
+			handler := &msgHandler{msgCallback}
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			respConsumer.Consume(ctx, handler)
+		}, 15)
 	})
 })

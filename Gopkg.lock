@@ -10,31 +10,28 @@
   version = "v1.19.0"
 
 [[projects]]
-  digest = "1:dcade65c88d17fe1841540f1f1f841941cf11f153a26fad02451f263a71490f1"
+  digest = "1:9e040726ee775fa241bf96d3c11533a5312d9bcb00a594b63679bff456a4522c"
   name = "github.com/TerrexTech/go-commonutils"
   packages = ["commonutil"]
   pruneopts = "UT"
-  revision = "bec34e895c0ef90d7b0452f141691767356ae6e4"
-  version = "v3.0.0"
+  revision = "3d09c974f936d001def7acafb178d99f317ee3a9"
+  version = "v3.1.0"
 
 [[projects]]
-  digest = "1:b81fd66feca3acca60fcfa826bd528467ee5264fd3fd3f45e76bfcf4a5300d0b"
+  digest = "1:dee9ede39c2d6dd372cf8ac6df7e2051989c36a1d91565f7b40f4aef432979c5"
   name = "github.com/TerrexTech/go-eventstore-models"
   packages = ["model"]
   pruneopts = "UT"
-  revision = "25dbcb94214e4582014a88e73cae53facef46b97"
-  version = "v2.2.0"
+  revision = "309bc2e4adb405313be36883daf2b8a7ce09bba9"
+  version = "v3.0.0"
 
 [[projects]]
-  digest = "1:0e6a18c6eed37c19e25e23fadbd9714348f0678c32436965d303f77a97b48375"
+  digest = "1:f5e8cdbab97b9fc1012419c49d9d2681975d028497a709ecdc07927889161025"
   name = "github.com/TerrexTech/go-kafkautils"
-  packages = [
-    "consumer",
-    "producer",
-  ]
+  packages = ["kafka"]
   pruneopts = "UT"
-  revision = "b3655b22f8a269a2a35e9b4e96c57fa0f9fe7b3c"
-  version = "v2.1.1"
+  revision = "dc9eaa20ef7d0d5e78c30a903b938e965f3da27e"
+  version = "v3.0.0"
 
 [[projects]]
   digest = "1:55520c6e5ec20c17e93f852a3b0889b70844f5fa49c3471a9aa962c6697159eb"
@@ -45,20 +42,12 @@
   version = "v3.1.0"
 
 [[projects]]
-  digest = "1:cb1eb706e2ebae50593fb3614afbdd03c9465ee7653f67c0cbc4dd050889d0cb"
+  digest = "1:d60c04290d42fa9b1b2c8aa1856bf7d7bc77af402e7f9a7e2d1c00c5df906d7e"
   name = "github.com/TerrexTech/uuuid"
   packages = ["."]
   pruneopts = "UT"
-  revision = "f8dab568898928167bc274d98c3e6cb6370e6458"
-  version = "v1.0.1"
-
-[[projects]]
-  digest = "1:526d64d0a3ac6c24875724a9355895be56a21f89a5d3ab5ba88d91244269a7d8"
-  name = "github.com/bsm/sarama-cluster"
-  packages = ["."]
-  pruneopts = "UT"
-  revision = "c618e605e15c0d7535f6c96ff8efbb0dba4fd66c"
-  version = "v2.1.15"
+  revision = "7e7a30e3b1c2fc538ac9a1553183a62f225d5a19"
+  version = "v1.2.0"
 
 [[projects]]
   branch = "master"
@@ -110,7 +99,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:df6f3284718e8be12d36bbe0b44af3b27a650077071c3d9f8e2f5f68367bfcf8"
+  digest = "1:e507a0752b9e3834730cd1f4eae689dd70f9c2e3bb98d0e697ca1b40ca806c4d"
   name = "github.com/gocql/gocql"
   packages = [
     ".",
@@ -119,7 +108,7 @@
     "internal/streams",
   ]
   pruneopts = "UT"
-  revision = "fb832297d742a757f1e631aded19c373e35dc67d"
+  revision = "6832a796414d0414fbf83e36eec80a84e0dd6ade"
 
 [[projects]]
   digest = "1:ce579162ae1341f3e5ab30c0dce767f28b1eb6a81359aad01723f1ba6b4becdf"
@@ -296,11 +285,11 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:c4556a44e350b50a490544d9b06e9fba9c286c21d6c0e47f54f3a9214597298c"
+  digest = "1:d38f81081a389f1466ec98192cf9115a82158854d6f01e1c23e2e7554b97db71"
   name = "github.com/rcrowley/go-metrics"
   packages = ["."]
   pruneopts = "UT"
-  revision = "e2704e165165ec55d062f5919b4b29494e9fa790"
+  revision = "3113b8401b8a98917cde58f8bbd42a1b1c03b1fd"
 
 [[projects]]
   branch = "master"
@@ -324,7 +313,7 @@
   name = "golang.org/x/crypto"
   packages = ["pbkdf2"]
   pruneopts = "UT"
-  revision = "e3636079e1a4c1f337f212cc5cd2aca108f6c900"
+  revision = "0c41d7ab0a0ee717d4590a44bcb987dfd9e183eb"
 
 [[projects]]
   branch = "master"
@@ -337,7 +326,7 @@
     "html/charset",
   ]
   pruneopts = "UT"
-  revision = "146acd28ed5894421fb5aac80ca93bc1b1f46f87"
+  revision = "04a2e542c03f1d053ab3e4d6e5abcd4b66e2be8e"
 
 [[projects]]
   branch = "master"
@@ -349,11 +338,11 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:c2789211d4035eb0843b85958ecf7cb4a5ea91c2d4decee652c94ce898e433cb"
+  digest = "1:c5791551cb1ebd8cd399edad5bc32805661a5c0340515110dd7d5ab0b0508efc"
   name = "golang.org/x/sys"
   packages = ["unix"]
   pruneopts = "UT"
-  revision = "4497e2df6f9e69048a54498c7affbbec3294ad47"
+  revision = "8a28ead16f52c8aaeffbf79239b251dfdf6c4f96"
 
 [[projects]]
   digest = "1:4392fcf42d5cf0e3ff78c96b2acf8223d49e4fdc53eb77c99d2f8dfe4680e006"
@@ -421,12 +410,14 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
+    "github.com/Shopify/sarama",
+    "github.com/TerrexTech/go-commonutils/commonutil",
     "github.com/TerrexTech/go-eventstore-models/model",
-    "github.com/TerrexTech/go-kafkautils/consumer",
-    "github.com/TerrexTech/go-kafkautils/producer",
+    "github.com/TerrexTech/go-kafkautils/kafka",
     "github.com/TerrexTech/go-mongoutils/mongo",
     "github.com/TerrexTech/uuuid",
     "github.com/joho/godotenv",
+    "github.com/mongodb/mongo-go-driver/bson/objectid",
     "github.com/mongodb/mongo-go-driver/mongo/findopt",
     "github.com/onsi/ginkgo",
     "github.com/onsi/gomega",
