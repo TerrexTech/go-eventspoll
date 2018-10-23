@@ -5,8 +5,7 @@ import (
 	"log"
 
 	"github.com/TerrexTech/go-eventstore-models/model"
-	"github.com/TerrexTech/go-kafkautils/consumer"
-	"github.com/TerrexTech/go-kafkautils/producer"
+	"github.com/TerrexTech/go-kafkautils/kafka"
 	"github.com/TerrexTech/go-mongoutils/mongo"
 	"github.com/pkg/errors"
 )
@@ -15,11 +14,10 @@ import (
 // Warning: Be sure to read the associated EventsIO channel if it is enabled here.
 // Otherwise it will result in a deadlock!
 type ReadConfig struct {
-	EnableDelete  bool
-	EnableInsert  bool
-	EnableInvalid bool
-	EnableQuery   bool
-	EnableUpdate  bool
+	EnableDelete bool
+	EnableInsert bool
+	EnableQuery  bool
+	EnableUpdate bool
 }
 
 // KafkaConfig is the configuration for Kafka, such as brokers and topics.
@@ -98,7 +96,6 @@ func validateConfig(config IOConfig) error {
 	rc := config.ReadConfig
 	if !rc.EnableDelete &&
 		!rc.EnableInsert &&
-		!rc.EnableInvalid &&
 		!rc.EnableQuery &&
 		!rc.EnableUpdate {
 		return errors.New(
@@ -128,36 +125,36 @@ func Init(config IOConfig) (*EventsIO, error) {
 		insert:      make(chan *EventResponse),
 		query:       make(chan *EventResponse),
 		update:      make(chan *EventResponse),
-		invalid:     make(chan *EventResponse),
 	}
 
 	kfConfig := config.KafkaConfig
 
 	// Events Consumer
 	log.Println("Initializing Events Consumer")
-	eventConsConf := consumer.Config{
-		ConsumerGroup: kfConfig.ConsumerEventGroup,
-		KafkaBrokers:  kfConfig.Brokers,
-		Topics:        []string{kfConfig.ConsumerEventTopic},
+	eventConsConf := &kafka.ConsumerConfig{
+		GroupName:    kfConfig.ConsumerEventGroup,
+		KafkaBrokers: kfConfig.Brokers,
+		Topics:       []string{kfConfig.ConsumerEventTopic},
 	}
-	eventChan, err := eventsConsumer(config.AggregateID, cancelCtx, eventConsConf)
+	eventConsumer, err := kafka.NewConsumer(eventConsConf)
 	if err != nil {
 		cancel()
 		return nil, err
 	}
 
-	prodConf := producer.Config{
+	prodConf := kafka.ProducerConfig{
 		KafkaBrokers: kfConfig.Brokers,
 	}
 
 	// EventStoreQuery Request Producer
+	eventRespChan := make(chan model.KafkaResponse)
 	log.Println("Initializing EventStoreQuery Request Producer")
 	esqReqProdConfig := &esQueryReqProdConfig{
-		cancelCtx:       cancelCtx,
+		cancelCtx:       &cancelCtx,
 		mongoColl:       config.MongoCollection,
 		kafkaProdConfig: prodConf,
 		dbFailThreshold: config.MongoFailThreshold,
-		eventChan:       eventChan,
+		eventRespChan:   eventRespChan,
 		kafkaTopic:      kfConfig.ProducerEventQueryTopic,
 	}
 	err = esQueryReqProducer(esqReqProdConfig)
@@ -168,17 +165,12 @@ func Init(config IOConfig) (*EventsIO, error) {
 
 	// EventStoreQuery Response Consumer
 	log.Println("Initializing EventStoreQuery Response Consumer")
-	esQueryConsConf := consumer.Config{
-		ConsumerGroup: kfConfig.ConsumerEventQueryGroup,
-		KafkaBrokers:  kfConfig.Brokers,
-		Topics:        []string{kfConfig.ConsumerEventQueryTopic},
+	esRespConf := &kafka.ConsumerConfig{
+		GroupName:    kfConfig.ConsumerEventQueryGroup,
+		KafkaBrokers: kfConfig.Brokers,
+		Topics:       []string{kfConfig.ConsumerEventQueryTopic},
 	}
-	err = esQueryResCosumer(
-		cancelCtx,
-		config.ReadConfig,
-		esQueryConsConf,
-		eventsIO,
-	)
+	esRespConsumer, err := kafka.NewConsumer(esRespConf)
 	if err != nil {
 		cancel()
 		return nil, err
@@ -187,7 +179,7 @@ func Init(config IOConfig) (*EventsIO, error) {
 	// Result Producer
 	log.Println("Initializing Result Producer")
 	err = resultProducer(
-		cancelCtx,
+		&cancelCtx,
 		prodConf,
 		kfConfig.ProducerResponseTopic,
 		(<-chan *model.KafkaResponse)(krChan),
@@ -196,6 +188,38 @@ func Init(config IOConfig) (*EventsIO, error) {
 		cancel()
 		return nil, err
 	}
+
+	log.Println("Starting Consumers")
+
+	go func() {
+		<-cancelCtx.Done()
+		err := eventConsumer.Close()
+		if err != nil {
+			err = errors.Wrap(err, "Error closing EventConsumer")
+		}
+		log.Println("--> Closed EventConsumer")
+		err = esRespConsumer.Close()
+		if err != nil {
+			err = errors.Wrap(err, "Error closing ESResponseConsumer")
+		}
+		log.Println("--> Closed ESResponseConsumer")
+	}()
+	go func() {
+		handler := &eventHandler{eventRespChan}
+		err = eventConsumer.Consume(cancelCtx, handler)
+		if err != nil {
+			err = errors.Wrap(err, "Failed to consume Events")
+			log.Fatalln(err)
+		}
+	}()
+	go func() {
+		handler := &esRespHandler{eventsIO, config.ReadConfig}
+		err = esRespConsumer.Consume(cancelCtx, handler)
+		if err != nil {
+			err = errors.Wrap(err, "Failed to consume EventStoreQuery-Response")
+			log.Fatalln(err)
+		}
+	}()
 
 	log.Println("Events-Poll Service Initialized")
 	return eventsIO, nil

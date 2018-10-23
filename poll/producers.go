@@ -4,35 +4,31 @@ import (
 	ctx "context"
 	"encoding/json"
 	"log"
+	"sync"
 
 	"github.com/TerrexTech/go-eventstore-models/model"
-	"github.com/TerrexTech/go-kafkautils/producer"
+	"github.com/TerrexTech/go-kafkautils/kafka"
 	"github.com/TerrexTech/go-mongoutils/mongo"
 	"github.com/pkg/errors"
 )
 
 type esQueryReqProdConfig struct {
 	dbFailThreshold int16
-	cancelCtx       ctx.Context
+	cancelCtx       *ctx.Context
 	mongoColl       *mongo.Collection
-	kafkaProdConfig producer.Config
+	kafkaProdConfig kafka.ProducerConfig
 	kafkaTopic      string
-	eventChan       <-chan model.Event
+	eventRespChan   <-chan model.KafkaResponse
 }
 
 // esQueryReqProducer produces the EventStoreQuery requests to get new events.
 // This is triggered everytime an event is produced.
 func esQueryReqProducer(config *esQueryReqProdConfig) error {
-	p, err := producer.New(&config.kafkaProdConfig)
+	p, err := kafka.NewProducer(&config.kafkaProdConfig)
 	if err != nil {
 		err = errors.Wrap(err, "ESQueryReqProducer: Error creating Kafka-Produer")
 		return err
 	}
-
-	go func() {
-		<-config.cancelCtx.Done()
-		p.Close()
-	}()
 
 	go func() {
 		for err := range p.Errors() {
@@ -42,46 +38,57 @@ func esQueryReqProducer(config *esQueryReqProdConfig) error {
 		}
 	}()
 
+	var closeLock sync.RWMutex
+	closeProducer := false
 	go func() {
-		// Replace provided version with MaxVersion from DB and send the query to
-		// EventStoreQuery service.
-		for event := range config.eventChan {
-			go func(event model.Event) {
-				currVersion, err := getMaxVersion(config.mongoColl, config.dbFailThreshold)
-				if err != nil {
-					err = errors.Wrapf(
-						err,
-						"Error fetching max version for AggregateID %d",
-						event.AggregateID,
-					)
-					return
-				}
+		for {
+			select {
+			case <-(*config.cancelCtx).Done():
+				closeLock.Lock()
+				closeProducer = true
+				p.Close()
+				closeLock.Unlock()
+				log.Println("--> Closed ESQueryRequest-Producer")
+				return
+			// Replace provided version with MaxVersion from DB and send the query to
+			// EventStoreQuery service.
+			case kr := <-config.eventRespChan:
+				go func(kr model.KafkaResponse) {
+					currVersion, err := getMaxVersion(config.mongoColl, config.dbFailThreshold)
+					if err != nil {
+						err = errors.Wrapf(
+							err,
+							"Error fetching max version for AggregateID %d",
+							kr.AggregateID,
+						)
+						return
+					}
 
-				// Create EventStoreQuery
-				esQuery := model.EventStoreQuery{
-					AggregateID:      event.AggregateID,
-					AggregateVersion: currVersion,
-					CorrelationID:    event.CorrelationID,
-					YearBucket:       event.YearBucket,
-				}
-				esMsg, err := json.Marshal(esQuery)
-				if err != nil {
-					err = errors.Wrap(err, "ESQueryReqProducer: Error Marshalling EventStoreQuery")
-					log.Println(err)
-					return
-				}
-				msg := producer.CreateMessage(config.kafkaTopic, esMsg)
-				inputChan, err := p.Input()
-				if err != nil {
-					err = errors.Wrap(
-						err,
-						"ESQueryReqProducer: Error while producing EventStoreQuery-Request",
-					)
-					log.Println(err)
-					return
-				}
-				inputChan <- msg
-			}(event)
+					// Create EventStoreQuery
+					esQuery := model.EventStoreQuery{
+						AggregateID:      kr.AggregateID,
+						AggregateVersion: currVersion,
+						CorrelationID:    kr.CorrelationID,
+						YearBucket:       2018,
+						UUID:             kr.UUID,
+					}
+					esMsg, err := json.Marshal(esQuery)
+					if err != nil {
+						err = errors.Wrap(err, "ESQueryReqProducer: Error Marshalling EventStoreQuery")
+						log.Println(err)
+						return
+					}
+					msg := kafka.CreateMessage(config.kafkaTopic, esMsg)
+
+					closeLock.Lock()
+					if !closeProducer {
+						p.Input() <- msg
+					} else {
+						log.Println("Closed producer before producing ESQuery-Request")
+					}
+					closeLock.Unlock()
+				}(kr)
+			}
 		}
 	}()
 	return nil
@@ -90,21 +97,16 @@ func esQueryReqProducer(config *esQueryReqProdConfig) error {
 // resultProducer produces the results for the events processed by this service, to be
 // consumed by other services and proceed as required.
 func resultProducer(
-	cancelCtx ctx.Context,
-	config producer.Config,
+	cancelCtx *ctx.Context,
+	config kafka.ProducerConfig,
 	topic string,
 	resultChan <-chan *model.KafkaResponse,
 ) error {
-	p, err := producer.New(&config)
+	p, err := kafka.NewProducer(&config)
 	if err != nil {
 		err = errors.Wrap(err, "ResultProducer: Error creating Kafka-Produer")
 		return err
 	}
-
-	go func() {
-		<-cancelCtx.Done()
-		p.Close()
-	}()
 
 	go func() {
 		for err := range p.Errors() {
@@ -114,24 +116,36 @@ func resultProducer(
 		}
 	}()
 
+	var closeLock sync.RWMutex
+	closeProducer := false
 	go func() {
-		for kr := range resultChan {
-			krmsg, err := json.Marshal(kr)
-			if err != nil {
-				err = errors.Wrap(err, "ResultProducer: Errors Marshalling KafkaResponse")
-				log.Println(err)
-				continue
-			}
+		for {
+			select {
+			case <-(*cancelCtx).Done():
+				closeLock.Lock()
+				closeProducer = true
+				p.Close()
+				closeLock.Unlock()
+				log.Println("--> Closed ESQueryRequest-Producer")
+				return
 
-			inputChan, err := p.Input()
-			if err != nil {
-				err = errors.Wrap(err, "ResultProducer: Error while producing KafkaResponse")
-				log.Println(err)
-				continue
-			}
+			case kr := <-resultChan:
+				krmsg, err := json.Marshal(kr)
+				if err != nil {
+					err = errors.Wrap(err, "ResultProducer: Errors Marshalling KafkaResponse")
+					log.Println(err)
+					continue
+				}
 
-			msg := producer.CreateMessage(topic, krmsg)
-			inputChan <- msg
+				msg := kafka.CreateMessage(topic, krmsg)
+				closeLock.Lock()
+				if !closeProducer {
+					p.Input() <- msg
+				} else {
+					log.Println("Closed producer before producing result")
+				}
+				closeLock.Unlock()
+			}
 		}
 	}()
 	return nil

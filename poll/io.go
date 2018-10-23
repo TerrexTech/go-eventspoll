@@ -14,7 +14,6 @@ type EventsIO struct {
 	insert      chan *EventResponse
 	query       chan *EventResponse
 	update      chan *EventResponse
-	invalid     chan *EventResponse
 	resultInput chan *model.KafkaResponse
 }
 
@@ -22,9 +21,9 @@ type EventsIO struct {
 // insert, query, update, invalid, resultInput associated with EventsPoll service.
 // Use this when the service is no longer required.
 func (ec *EventsIO) Close() {
+	close(ec.resultInput)
 	cancel := *ec.cancelFunc
 	cancel()
-	close(ec.resultInput)
 }
 
 // Delete is the channel for "delete" events.
@@ -45,12 +44,6 @@ func (ec *EventsIO) Query() <-chan *EventResponse {
 // Update is the channel for "update" events.
 func (ec *EventsIO) Update() <-chan *EventResponse {
 	return (<-chan *EventResponse)(ec.update)
-}
-
-// Invalid is the channel for invalid events. Invalid events are those whose "action"
-// field is not one of "insert", "update", "delete" or "query".
-func (ec *EventsIO) Invalid() <-chan *EventResponse {
-	return (<-chan *EventResponse)(ec.invalid)
 }
 
 // ProduceResult can be used to produce the resulting Kafka-Message after/while processing

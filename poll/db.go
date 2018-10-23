@@ -3,6 +3,7 @@ package poll
 import (
 	ctx "context"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/TerrexTech/go-mongoutils/mongo"
@@ -12,6 +13,7 @@ import (
 
 // Difference collections can have different fail-counts, so we cache them in this map
 var dbFailCache map[string]int16
+var failCacheLock sync.RWMutex
 
 // getMaxVersion returns the maximum event-hydration version for the Aggregate.
 // This version is updated everytime new events are processed, except on "query" events.
@@ -27,8 +29,13 @@ var dbFailCache map[string]int16
 // This is not an ideal method to deal
 // with this, so a better method will be put in future.
 func getMaxVersion(c *mongo.Collection, dbFailThreshold int16) (int64, error) {
-	if dbFailCache == nil {
+	failCacheLock.RLock()
+	failCacheNil := dbFailCache == nil
+	failCacheLock.RUnlock()
+	if failCacheNil {
+		failCacheLock.Lock()
 		dbFailCache = map[string]int16{}
+		failCacheLock.Unlock()
 	}
 
 	findCtx, findCancel := ctx.WithTimeout(
@@ -50,9 +57,15 @@ func getMaxVersion(c *mongo.Collection, dbFailThreshold int16) (int64, error) {
 	result := map[string]interface{}{}
 	err := c.Collection().FindOne(findCtx, filter, opt).Decode(result)
 	if err != nil {
+		failCacheLock.Lock()
 		// Return error if getting version has failed enough times
 		dbFailCache[c.Name] = dbFailCache[c.Name] + 1
-		if dbFailCache[c.Name] > dbFailThreshold {
+		failCacheLock.Unlock()
+
+		failCacheLock.RLock()
+		failCollCache := dbFailCache[c.Name]
+		failCacheLock.RUnlock()
+		if failCollCache > dbFailThreshold {
 			return -1, err
 		}
 
@@ -62,7 +75,9 @@ func getMaxVersion(c *mongo.Collection, dbFailThreshold int16) (int64, error) {
 		return 1, nil
 	}
 	// Reset fail-counter on successful connection
+	failCacheLock.Lock()
 	dbFailCache[c.Name] = 0
+	failCacheLock.Unlock()
 
 	version, ok := result["version"].(int64)
 	if !ok {
