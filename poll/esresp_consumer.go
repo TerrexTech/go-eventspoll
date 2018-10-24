@@ -41,76 +41,74 @@ func (e *esRespHandler) ConsumeClaim(
 ) error {
 	log.Println("Listening for EventStoreQuery-Responses...")
 	for msg := range claim.Messages() {
-		go func(session sarama.ConsumerGroupSession, msg *sarama.ConsumerMessage) {
-			kr := &model.KafkaResponse{}
-			err := json.Unmarshal(msg.Value, kr)
-			if err != nil {
-				err = errors.Wrap(err, "Error Unmarshalling ESQuery-Response into KafkaResponse")
-				log.Println(err)
-				return
+		kr := &model.KafkaResponse{}
+		err := json.Unmarshal(msg.Value, kr)
+		if err != nil {
+			err = errors.Wrap(err, "Error Unmarshalling ESQuery-Response into KafkaResponse")
+			log.Println(err)
+			continue
+		}
+
+		var krError error
+		if kr.Error != "" {
+			krError = fmt.Errorf("Error %d: %s", kr.ErrorCode, kr.Error)
+		}
+
+		// Get all events from KafkaResponse
+		events := &[]model.Event{}
+		err = json.Unmarshal(kr.Result, events)
+		if err != nil {
+			err = errors.Wrap(err, "Error Unmarshalling KafkaResult into Events")
+			log.Println(err)
+
+			uuid, uerr := uuuid.NewV4()
+			if uerr != nil {
+				uerr = errors.Wrap(uerr, "Error getting UUID for KafkaResponse")
+				uuid = uuuid.UUID{}
+			}
+			e.eventsIO.ProduceResult() <- &model.KafkaResponse{
+				AggregateID:   kr.AggregateID,
+				CorrelationID: kr.CorrelationID,
+				Error:         err.Error(),
+				ErrorCode:     ec.InternalError,
+				UUID:          uuid,
+			}
+			continue
+		}
+
+		// Distribute events to their respective channels
+		for _, event := range *events {
+			eventResp := &EventResponse{
+				Event: event,
+				Error: krError,
 			}
 
-			var krError error
-			if kr.Error != "" {
-				krError = fmt.Errorf("Error %d: %s", kr.ErrorCode, kr.Error)
-			}
-
-			// Get all events from KafkaResponse
-			events := &[]model.Event{}
-			err = json.Unmarshal(kr.Result, events)
-			if err != nil {
-				err = errors.Wrap(err, "Error Unmarshalling KafkaResult into Events")
-				log.Println(err)
-
-				uuid, uerr := uuuid.NewV4()
-				if uerr != nil {
-					uerr = errors.Wrap(uerr, "Error getting UUID for KafkaResponse")
-					uuid = uuuid.UUID{}
-				}
-				e.eventsIO.ProduceResult() <- &model.KafkaResponse{
-					AggregateID:   kr.AggregateID,
-					CorrelationID: kr.CorrelationID,
-					Error:         err.Error(),
-					ErrorCode:     ec.InternalError,
-					UUID:          uuid,
-				}
-				return
-			}
-
-			// Distribute events to their respective channels
-			for _, event := range *events {
-				eventResp := &EventResponse{
-					Event: event,
-					Error: krError,
-				}
-
-				switch event.Action {
-				case "delete":
-					if e.readConfig.EnableDelete {
-						session.MarkMessage(msg, "")
-						e.eventsIO.delete <- eventResp
-					}
-				case "insert":
-					if e.readConfig.EnableInsert {
-						session.MarkMessage(msg, "")
-						e.eventsIO.insert <- eventResp
-					}
-				case "query":
-					if e.readConfig.EnableQuery {
-						session.MarkMessage(msg, "")
-						e.eventsIO.query <- eventResp
-					}
-				case "update":
-					if e.readConfig.EnableUpdate {
-						session.MarkMessage(msg, "")
-						e.eventsIO.update <- eventResp
-					}
-				default:
-					log.Printf("Invalid Action found in Event %s", event.TimeUUID)
+			switch event.Action {
+			case "delete":
+				if e.readConfig.EnableDelete {
 					session.MarkMessage(msg, "")
+					e.eventsIO.delete <- eventResp
 				}
+			case "insert":
+				if e.readConfig.EnableInsert {
+					session.MarkMessage(msg, "")
+					e.eventsIO.insert <- eventResp
+				}
+			case "query":
+				if e.readConfig.EnableQuery {
+					session.MarkMessage(msg, "")
+					e.eventsIO.query <- eventResp
+				}
+			case "update":
+				if e.readConfig.EnableUpdate {
+					session.MarkMessage(msg, "")
+					e.eventsIO.update <- eventResp
+				}
+			default:
+				log.Printf("Invalid Action found in Event %s", event.TimeUUID)
+				session.MarkMessage(msg, "")
 			}
-		}(session, msg)
+		}
 	}
 	return nil
 }
