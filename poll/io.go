@@ -9,6 +9,7 @@ import (
 // EventsIO allows interacting with the EventsPoll service.
 // This is the medium through which the new events are distributed.
 type EventsIO struct {
+	cancelCtx   *context.Context
 	cancelFunc  *context.CancelFunc
 	delete      chan *EventResponse
 	insert      chan *EventResponse
@@ -17,37 +18,45 @@ type EventsIO struct {
 	resultInput chan *model.KafkaResponse
 }
 
+// CancelCtx returns the CancelContext which is executed when
+// some Kafka Consumer or Producer closes for some reason.
+// The reason can be when the EventsIO.Close function is called
+// or even an error. This function should be used for error handling.
+func (e *EventsIO) CancelCtx() *context.Context {
+	return e.cancelCtx
+}
+
 // Close closes any open Kafka consumers/producers and other channels, such as delete,
 // insert, query, update, invalid, resultInput associated with EventsPoll service.
 // Use this when the service is no longer required.
-func (ec *EventsIO) Close() {
-	close(ec.resultInput)
-	cancel := *ec.cancelFunc
+func (e *EventsIO) Close() {
+	close(e.resultInput)
+	cancel := *e.cancelFunc
 	cancel()
 }
 
 // Delete is the channel for "delete" events.
-func (ec *EventsIO) Delete() <-chan *EventResponse {
-	return (<-chan *EventResponse)(ec.delete)
+func (e *EventsIO) Delete() <-chan *EventResponse {
+	return (<-chan *EventResponse)(e.delete)
 }
 
 // Insert is the channel for "insert" events.
-func (ec *EventsIO) Insert() <-chan *EventResponse {
-	return (<-chan *EventResponse)(ec.insert)
+func (e *EventsIO) Insert() <-chan *EventResponse {
+	return (<-chan *EventResponse)(e.insert)
 }
 
 // Query is the channel for "query" events.
-func (ec *EventsIO) Query() <-chan *EventResponse {
-	return (<-chan *EventResponse)(ec.query)
+func (e *EventsIO) Query() <-chan *EventResponse {
+	return (<-chan *EventResponse)(e.query)
 }
 
 // Update is the channel for "update" events.
-func (ec *EventsIO) Update() <-chan *EventResponse {
-	return (<-chan *EventResponse)(ec.update)
+func (e *EventsIO) Update() <-chan *EventResponse {
+	return (<-chan *EventResponse)(e.update)
 }
 
 // ProduceResult can be used to produce the resulting Kafka-Message after/while processing
 // events from EventsPoll service.
-func (ec *EventsIO) ProduceResult() chan<- *model.KafkaResponse {
-	return (chan<- *model.KafkaResponse)(ec.resultInput)
+func (e *EventsIO) ProduceResult() chan<- *model.KafkaResponse {
+	return (chan<- *model.KafkaResponse)(e.resultInput)
 }
