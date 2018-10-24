@@ -120,6 +120,13 @@ func main() {
 		log.Fatalln(err)
 	}
 
+	// Handle poll errors
+	go func() {
+		cancelCtx := *eventPoll.CancelCtx()
+		<-cancelCtx.Done()
+		log.Fatalln("A critical error occurred, service will now exit")
+	}()
+
 	go func() {
 		// Handle Insert events
 		for eventResp := range eventPoll.Insert() {
