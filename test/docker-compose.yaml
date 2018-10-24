@@ -39,7 +39,7 @@ services:
       - 2181:2181
 
   go-eventpersistence:
-    image: terrextech/go-eventpersistence:v2.0.0
+    image: terrextech/go-eventpersistence:v2.0.1
     env_file:
       - ./.envp
 

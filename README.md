@@ -24,6 +24,16 @@ How it works:
 
 * [Go Docs][3]
 
+---
+
+### Versioning
+
+Since the library will be backwards compatible for a long time (if not forever...), the versioning will be as follows:
+
+**`x..`**: Major feature  
+**`.x.`**: Minor feature  
+**`..x`**: Patch
+
   [0]: https://github.com/TerrexTech/go-eventstore-query
   [1]: https://github.com/TerrexTech/go-eventspoll/blob/master/examples/example.go
   [2]: https://github.com/TerrexTech/go-eventspoll/blob/master/poll/poll_suite_test.go
