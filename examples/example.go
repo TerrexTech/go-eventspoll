@@ -18,8 +18,7 @@ type item struct {
 	Hits       int               `bson:"hits,omitempty" json:"hits,omitempty"`
 }
 
-// createMongoCollection simulates creating a basic MongoCollection.
-func createMongoCollection() (*mongo.Collection, error) {
+func createMongoConnection() (*mongo.ConnectionConfig, error) {
 	mongoConfig := mongo.ClientConfig{
 		Hosts:               []string{"localhost:27017"},
 		Username:            "root",
@@ -38,6 +37,11 @@ func createMongoCollection() (*mongo.Collection, error) {
 		Client:  client,
 		Timeout: 3000,
 	}
+	return conn, nil
+}
+
+// createMongoCollection simulates creating a basic MongoCollection.
+func createMongoCollection(conn *mongo.ConnectionConfig) (*mongo.Collection, error) {
 	// Index Configuration
 	indexConfigs := []mongo.IndexConfig{
 		mongo.IndexConfig{
@@ -69,7 +73,13 @@ func createMongoCollection() (*mongo.Collection, error) {
 }
 
 func main() {
-	collection, err := createMongoCollection()
+	conn, err := createMongoConnection()
+	if err != nil {
+		err = errors.Wrap(err, "Error creating MongoConnection")
+		log.Fatalln(err)
+	}
+
+	collection, err := createMongoCollection(conn)
 	if err != nil {
 		err = errors.Wrap(err, "Error creating MongoCollection")
 		log.Fatalln(err)
@@ -86,19 +96,22 @@ func main() {
 		ProducerEventQueryTopic: "events.rns_eventstore.esquery",
 		ProducerResponseTopic:   "resp",
 	}
+	mc := poll.MongoConfig{
+		AggregateID:        2,
+		AggCollection:      collection,
+		Connection:         conn,
+		MetaDatabaseName:   "rns_projections",
+		MetaCollectionName: "aggregate_meta",
+	}
 	ioConfig := poll.IOConfig{
-		AggregateID: 2,
 		// Choose what type of events we need process
 		// Remember, adding a type here and not processing/listening to it will cause deadlocks!
 		ReadConfig: poll.ReadConfig{
 			EnableInsert: true,
 			EnableUpdate: true,
 		},
-		KafkaConfig:     kc,
-		MongoCollection: collection,
-		// The number of times we allow failure to get max aggregate-version from DB.
-		// Check docs for more info.
-		MongoFailThreshold: 3,
+		KafkaConfig: kc,
+		MongoConfig: mc,
 	}
 
 	eventPoll, err := poll.Init(ioConfig)
