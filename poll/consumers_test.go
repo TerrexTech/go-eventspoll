@@ -296,22 +296,16 @@ var _ = Describe("Consumers", func() {
 		Expect(meta.Version).ToNot(Equal(int64(0)))
 	})
 
-	Context("test response generation", func() {
-		var (
-			eventsIO     *EventsIO
-			respConsumer *kafka.Consumer
-		)
-
-		BeforeEach(func() {
-			var err error
-
+	Context("test response-generation", func() {
+		It("should produce the response", func(done Done) {
+			// Init Poll Service
 			kfConfig := ioConfig.KafkaConfig
 			consCfg := &kafka.ConsumerConfig{
 				GroupName:    "poll-test-group",
 				KafkaBrokers: kafkaBrokers,
 				Topics:       []string{kfConfig.ProducerResponseTopic},
 			}
-			respConsumer, err = kafka.NewConsumer(consCfg)
+			respConsumer, err := kafka.NewConsumer(consCfg)
 			Expect(err).ToNot(HaveOccurred())
 
 			go func() {
@@ -325,16 +319,14 @@ var _ = Describe("Consumers", func() {
 			ioConfig.ReadConfig.EnableUpdate = false
 			ioConfig.ReadConfig.EnableQuery = false
 
-			eventsIO, err = Init(ioConfig)
+			eventsIO, err := Init(ioConfig)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Here we again test that we only get responses on channels we have enabled
 			mockEvent(eventProdInput, eventsTopic, "insert")
 			mockEvent(eventProdInput, eventsTopic, "update")
 			mockEvent(eventProdInput, eventsTopic, "delete")
-		})
 
-		It("should produce the response", func(done Done) {
 			// Since we only enabled insert
 			eventResp := <-eventsIO.Insert()
 			event := eventResp.Event
@@ -368,4 +360,19 @@ var _ = Describe("Consumers", func() {
 			respConsumer.Consume(ctx, handler)
 		}, 15)
 	})
+
+	It("should execute cancel-context when the service is closed", func(done Done) {
+		// Change ConsumerGroup so it doesn't interfere with other parallel tests' groups
+		ioConfig.KafkaConfig.ConsumerEventGroup = "test-e-group-close-2"
+		ioConfig.KafkaConfig.ConsumerEventQueryGroup = "test-eq-group-close-2"
+		eventsIO, err := Init(ioConfig)
+		Expect(err).ToNot(HaveOccurred())
+
+		go func() {
+			cancelCtx := *eventsIO.CancelCtx()
+			<-cancelCtx.Done()
+			close(done)
+		}()
+		eventsIO.Close()
+	}, 5)
 })

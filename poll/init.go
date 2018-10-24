@@ -142,6 +142,7 @@ func Init(config IOConfig) (*EventsIO, error) {
 	cancelCtx, cancel := ctx.WithCancel(ctx.Background())
 	krChan := make(chan *model.KafkaResponse)
 	eventsIO := &EventsIO{
+		cancelCtx:   &cancelCtx,
 		cancelFunc:  &cancel,
 		resultInput: krChan,
 		delete:      make(chan *EventResponse),
@@ -228,6 +229,7 @@ func Init(config IOConfig) (*EventsIO, error) {
 
 	log.Println("Starting Consumers")
 
+	// Close Consumers as per CancelContext
 	go func() {
 		<-cancelCtx.Done()
 		err := eventConsumer.Close()
@@ -242,6 +244,7 @@ func Init(config IOConfig) (*EventsIO, error) {
 		log.Println("--> Closed ESResponseConsumer")
 	}()
 
+	// Event Consumer
 	go func() {
 		handler := &eventHandler{eventRespChan}
 		err = eventConsumer.Consume(cancelCtx, handler)
@@ -252,6 +255,7 @@ func Init(config IOConfig) (*EventsIO, error) {
 		}
 	}()
 
+	// ESQuery Response Consumer
 	go func() {
 		handler := &esRespHandler{
 			aggID:          config.MongoConfig.AggregateID,
