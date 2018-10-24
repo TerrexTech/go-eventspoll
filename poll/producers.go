@@ -13,7 +13,7 @@ import (
 )
 
 type esQueryReqProdConfig struct {
-	dbFailThreshold int16
+	aggID           int8
 	cancelCtx       *ctx.Context
 	mongoColl       *mongo.Collection
 	kafkaProdConfig kafka.ProducerConfig
@@ -54,13 +54,14 @@ func esQueryReqProducer(config *esQueryReqProdConfig) error {
 			// EventStoreQuery service.
 			case kr := <-config.eventRespChan:
 				go func(kr model.KafkaResponse) {
-					currVersion, err := getMaxVersion(config.mongoColl, config.dbFailThreshold)
+					currVersion, err := getVersion(config.aggID, config.mongoColl)
 					if err != nil {
 						err = errors.Wrapf(
 							err,
 							"Error fetching max version for AggregateID %d",
 							kr.AggregateID,
 						)
+						log.Println(err)
 						return
 					}
 

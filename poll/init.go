@@ -38,58 +38,81 @@ type KafkaConfig struct {
 	ProducerResponseTopic string
 }
 
+// MongoConfig is the configuration for MongoDB client.
+type MongoConfig struct {
+	AggregateID   int8
+	AggCollection *mongo.Collection
+	// Collection/Database in which Aggregate metadata is stored.
+	Connection         *mongo.ConnectionConfig
+	MetaDatabaseName   string
+	MetaCollectionName string
+}
+
 // IOConfig is the configuration for EventPoll service.
 type IOConfig struct {
-	// Aggregate to process the events for.
-	AggregateID     int8
-	KafkaConfig     KafkaConfig
-	MongoCollection *mongo.Collection
-	// The number of times we allow DB to fail when fetching Max Aggregate-Version.
-	// Check docs on poll.getMaxVersion function for more info.
-	MongoFailThreshold int16
-	ReadConfig         ReadConfig
+	KafkaConfig KafkaConfig
+	MongoConfig MongoConfig
+	ReadConfig  ReadConfig
 }
 
 // validateConfig validates the input config.
 func validateConfig(config IOConfig) error {
-	if config.AggregateID < 1 {
-		return errors.New("AggregateID >0 is required, but none/invalid was specified")
-	}
-	if config.MongoFailThreshold < 1 {
+	mc := config.MongoConfig
+	if mc.AggregateID < 1 {
 		return errors.New(
-			"MongoFailThreshold >0 is required, but none/invalid was specified",
+			"MongoConfig: AggregateID >0 is required, but none/invalid was specified",
+		)
+	}
+	if mc.AggCollection == nil {
+		return errors.New(
+			"MongoConfig: AggCollection is required, but none was specified",
+		)
+	}
+	if mc.Connection == nil {
+		return errors.New(
+			"MongoConfig: Connection is required, but none was specified",
+		)
+	}
+	if mc.MetaDatabaseName == "" {
+		return errors.New(
+			"MongoConfig: MetaDatabaseName is required, but none was specified",
+		)
+	}
+	if mc.MetaCollectionName == "" {
+		return errors.New(
+			"MongoConfig: MetaCollectionName is required, but none was specified",
 		)
 	}
 
 	kfConfig := config.KafkaConfig
 	if kfConfig.ConsumerEventGroup == "" {
 		return errors.New(
-			"ConsumerEventGroup is required, but none was specified",
+			"KafkaConfig: ConsumerEventGroup is required, but none was specified",
 		)
 	}
 	if kfConfig.ConsumerEventQueryGroup == "" {
 		return errors.New(
-			"ConsumerEventQueryGroup is required, but none was specified",
+			"KafkaConfig: ConsumerEventQueryGroup is required, but none was specified",
 		)
 	}
 	if kfConfig.ConsumerEventQueryTopic == "" {
 		return errors.New(
-			"ConsumerEventQueryTopic is required, but none was specified",
+			"KafkaConfig: ConsumerEventQueryTopic is required, but none was specified",
 		)
 	}
 	if kfConfig.ConsumerEventTopic == "" {
 		return errors.New(
-			"ConsumerEventTopic is required, but none was specified",
+			"KafkaConfig: ConsumerEventTopic is required, but none was specified",
 		)
 	}
 	if kfConfig.ProducerEventQueryTopic == "" {
 		return errors.New(
-			"ProducerEventQueryTopic is required, but none was specified",
+			"KafkaConfig: ProducerEventQueryTopic is required, but none was specified",
 		)
 	}
 	if kfConfig.ProducerResponseTopic == "" {
 		return errors.New(
-			"ProducerResponseTopic is required, but none was specified",
+			"KafkaConfig: ProducerResponseTopic is required, but none was specified",
 		)
 	}
 
@@ -99,7 +122,7 @@ func validateConfig(config IOConfig) error {
 		!rc.EnableQuery &&
 		!rc.EnableUpdate {
 		return errors.New(
-			"Error in ReadConfig: Atleast one of the channels must be open/true",
+			"ReadConfig: Atleast one of the channels must be open/true",
 		)
 	}
 
@@ -128,6 +151,7 @@ func Init(config IOConfig) (*EventsIO, error) {
 	}
 
 	kfConfig := config.KafkaConfig
+	mgConfig := config.MongoConfig
 
 	// Events Consumer
 	log.Println("Initializing Events Consumer")
@@ -146,14 +170,26 @@ func Init(config IOConfig) (*EventsIO, error) {
 		KafkaBrokers: kfConfig.Brokers,
 	}
 
+	metaCollection, err := createMetaCollection(
+		mgConfig.AggregateID,
+		mgConfig.Connection,
+		mgConfig.MetaDatabaseName,
+		mgConfig.MetaCollectionName,
+	)
+	if err != nil {
+		cancel()
+		err = errors.Wrap(err, "Error initializing Meta-Collection")
+		return nil, err
+	}
+
 	// EventStoreQuery Request Producer
 	eventRespChan := make(chan model.KafkaResponse)
 	log.Println("Initializing EventStoreQuery Request Producer")
 	esqReqProdConfig := &esQueryReqProdConfig{
+		aggID:           mgConfig.AggregateID,
 		cancelCtx:       &cancelCtx,
-		mongoColl:       config.MongoCollection,
+		mongoColl:       metaCollection,
 		kafkaProdConfig: prodConf,
-		dbFailThreshold: config.MongoFailThreshold,
 		eventRespChan:   eventRespChan,
 		kafkaTopic:      kfConfig.ProducerEventQueryTopic,
 	}
@@ -178,6 +214,7 @@ func Init(config IOConfig) (*EventsIO, error) {
 
 	// Result Producer
 	log.Println("Initializing Result Producer")
+
 	err = resultProducer(
 		&cancelCtx,
 		prodConf,
@@ -204,18 +241,27 @@ func Init(config IOConfig) (*EventsIO, error) {
 		}
 		log.Println("--> Closed ESResponseConsumer")
 	}()
+
 	go func() {
 		handler := &eventHandler{eventRespChan}
 		err = eventConsumer.Consume(cancelCtx, handler)
 		if err != nil {
+			cancel()
 			err = errors.Wrap(err, "Failed to consume Events")
 			log.Fatalln(err)
 		}
 	}()
+
 	go func() {
-		handler := &esRespHandler{eventsIO, config.ReadConfig}
+		handler := &esRespHandler{
+			aggID:          config.MongoConfig.AggregateID,
+			eventsIO:       eventsIO,
+			readConfig:     config.ReadConfig,
+			metaCollection: metaCollection,
+		}
 		err = esRespConsumer.Consume(cancelCtx, handler)
 		if err != nil {
+			cancel()
 			err = errors.Wrap(err, "Failed to consume EventStoreQuery-Response")
 			log.Fatalln(err)
 		}
