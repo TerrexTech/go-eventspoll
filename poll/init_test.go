@@ -1,6 +1,7 @@
 package poll
 
 import (
+	"github.com/TerrexTech/go-kafkautils/kafka"
 	"github.com/TerrexTech/go-mongoutils/mongo"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -11,13 +12,13 @@ var _ = Describe("InitTest", func() {
 
 	BeforeEach(func() {
 		kc := KafkaConfig{
-			Brokers:                 []string{},
-			ConsumerEventGroup:      "test",
-			ConsumerEventQueryGroup: "testeqg",
-			ConsumerEventTopic:      "testet",
-			ConsumerEventQueryTopic: "testceqt",
-			ProducerEventQueryTopic: "testpeqt",
-			ProducerResponseTopic:   "testrt",
+			ESQueryResCons:  &kafka.ConsumerConfig{},
+			EventCons:       &kafka.ConsumerConfig{},
+			ESQueryReqProd:  &kafka.ProducerConfig{},
+			SvcResponseProd: &kafka.ProducerConfig{},
+
+			ESQueryReqTopic:  "testpeqt",
+			SvcResponseTopic: "testrt",
 		}
 		mc := MongoConfig{
 			AggCollection:      &mongo.Collection{},
@@ -86,55 +87,43 @@ var _ = Describe("InitTest", func() {
 	})
 
 	Describe("KafkaConfig Validation", func() {
-		It("should return error if ConsumerEventGroup is not specified", func() {
-			kfConfig := ioConfig.KafkaConfig
-
-			kfConfig.ConsumerEventGroup = ""
+		It("should return error if ESQueryResCons is not specified", func() {
+			kc := ioConfig.KafkaConfig
+			kc.ESQueryResCons = nil
 			eventsIO, err := Init(ioConfig)
 			Expect(err).To(HaveOccurred())
 			Expect(eventsIO).To(BeNil())
 		})
 
-		It("should return error if ConsumerEventQueryTopic is not specified", func() {
-			kfConfig := ioConfig.KafkaConfig
-
-			kfConfig.ConsumerEventQueryTopic = ""
+		It("should return error if EventCons is not specified", func() {
+			kc := ioConfig.KafkaConfig
+			kc.EventCons = nil
 			eventsIO, err := Init(ioConfig)
 			Expect(err).To(HaveOccurred())
 			Expect(eventsIO).To(BeNil())
 		})
 
-		It("should return error if ConsumerEventQueryTopic is not specified", func() {
-			kfConfig := ioConfig.KafkaConfig
-
-			kfConfig.ConsumerEventQueryTopic = ""
+		It("should return error if ESQueryReqProd is not specified", func() {
+			kc := ioConfig.KafkaConfig
+			kc.ESQueryReqProd = nil
 			eventsIO, err := Init(ioConfig)
 			Expect(err).To(HaveOccurred())
 			Expect(eventsIO).To(BeNil())
 		})
 
-		It("should return error if ConsumerEventTopic is not specified", func() {
+		It("should return error if ESQueryReqTopic is not specified", func() {
 			kfConfig := ioConfig.KafkaConfig
 
-			kfConfig.ConsumerEventTopic = ""
+			kfConfig.ESQueryReqTopic = ""
 			eventsIO, err := Init(ioConfig)
 			Expect(err).To(HaveOccurred())
 			Expect(eventsIO).To(BeNil())
 		})
 
-		It("should return error if ProducerEventQueryTopic is not specified", func() {
+		It("should return error if SvcResponseTopic is not specified", func() {
 			kfConfig := ioConfig.KafkaConfig
 
-			kfConfig.ProducerEventQueryTopic = ""
-			eventsIO, err := Init(ioConfig)
-			Expect(err).To(HaveOccurred())
-			Expect(eventsIO).To(BeNil())
-		})
-
-		It("should return error if ProducerResponseTopic is not specified", func() {
-			kfConfig := ioConfig.KafkaConfig
-
-			kfConfig.ProducerResponseTopic = ""
+			kfConfig.SvcResponseTopic = ""
 			eventsIO, err := Init(ioConfig)
 			Expect(err).To(HaveOccurred())
 			Expect(eventsIO).To(BeNil())

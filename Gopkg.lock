@@ -26,12 +26,12 @@
   version = "v3.0.0"
 
 [[projects]]
-  digest = "1:f5e8cdbab97b9fc1012419c49d9d2681975d028497a709ecdc07927889161025"
+  digest = "1:017b08c994a864ea4e94f1837037c14087f784a1e99d54173eba9050f7a81f74"
   name = "github.com/TerrexTech/go-kafkautils"
   packages = ["kafka"]
   pruneopts = "UT"
-  revision = "dc9eaa20ef7d0d5e78c30a903b938e965f3da27e"
-  version = "v3.0.0"
+  revision = "edd8ae664676b83ca85b9a6bb75811a14ccf0971"
+  version = "v3.1.0"
 
 [[projects]]
   digest = "1:55520c6e5ec20c17e93f852a3b0889b70844f5fa49c3471a9aa962c6697159eb"
@@ -51,11 +51,11 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:5e33f17a0345f8ff94763b128e790293c0d5b060d57a32aadfcc23fd51a619fa"
+  digest = "1:8500725e4a8fd006069df505505e0c370466b0952db1174235d7935e34e6df0b"
   name = "github.com/buger/jsonparser"
   packages = ["."]
   pruneopts = "UT"
-  revision = "6acdf747ae99cad92d1e8134606008acaca71844"
+  revision = "52c6e1462ebdfb4f59765ca13bd8fa1c31b1d7eb"
 
 [[projects]]
   digest = "1:ffe9824d294da03b391f44e1ae8281281b4afc1bdaa9588c9097785e3af10cec"
@@ -99,7 +99,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:e507a0752b9e3834730cd1f4eae689dd70f9c2e3bb98d0e697ca1b40ca806c4d"
+  digest = "1:8b69dc4a458a7722d1993db38954a7de6943d6f3ea2f0f2999ea8d4cd7203021"
   name = "github.com/gocql/gocql"
   packages = [
     ".",
@@ -108,7 +108,7 @@
     "internal/streams",
   ]
   pruneopts = "UT"
-  revision = "6832a796414d0414fbf83e36eec80a84e0dd6ade"
+  revision = "271c061c7f16702ca550b0e9721320b1c92e00cb"
 
 [[projects]]
   digest = "1:ce579162ae1341f3e5ab30c0dce767f28b1eb6a81359aad01723f1ba6b4becdf"
@@ -313,7 +313,7 @@
   name = "golang.org/x/crypto"
   packages = ["pbkdf2"]
   pruneopts = "UT"
-  revision = "0c41d7ab0a0ee717d4590a44bcb987dfd9e183eb"
+  revision = "e84da0312774c21d64ee2317962ef669b27ffb41"
 
 [[projects]]
   branch = "master"
@@ -326,23 +326,26 @@
     "html/charset",
   ]
   pruneopts = "UT"
-  revision = "04a2e542c03f1d053ab3e4d6e5abcd4b66e2be8e"
+  revision = "9b4f9f5ad5197c79fd623a3638e70d8b26cef344"
 
 [[projects]]
   branch = "master"
-  digest = "1:e0140c0c868c6e0f01c0380865194592c011fe521d6e12d78bfd33e756fe018a"
+  digest = "1:c313aef534e493304f3666fbd24dca5932ebf776a82b7a40f961c9355794a1b1"
   name = "golang.org/x/sync"
-  packages = ["semaphore"]
+  packages = [
+    "errgroup",
+    "semaphore",
+  ]
   pruneopts = "UT"
   revision = "1d60e4601c6fd243af51cc01ddf169918a5407ca"
 
 [[projects]]
   branch = "master"
-  digest = "1:c5791551cb1ebd8cd399edad5bc32805661a5c0340515110dd7d5ab0b0508efc"
+  digest = "1:008fb9f84ae9bf7994228b9c78810d44162071ec13caf28291677897dca819ee"
   name = "golang.org/x/sys"
   packages = ["unix"]
   pruneopts = "UT"
-  revision = "8a28ead16f52c8aaeffbf79239b251dfdf6c4f96"
+  revision = "d989b31c87461dc8ab2f1cac6792814e27fadea9"
 
 [[projects]]
   digest = "1:4392fcf42d5cf0e3ff78c96b2acf8223d49e4fdc53eb77c99d2f8dfe4680e006"
@@ -418,10 +421,10 @@
     "github.com/TerrexTech/uuuid",
     "github.com/joho/godotenv",
     "github.com/mongodb/mongo-go-driver/bson/objectid",
-    "github.com/mongodb/mongo-go-driver/mongo/findopt",
     "github.com/onsi/ginkgo",
     "github.com/onsi/gomega",
     "github.com/pkg/errors",
+    "golang.org/x/sync/errgroup",
   ]
   solver-name = "gps-cdcl"
   solver-version = 1

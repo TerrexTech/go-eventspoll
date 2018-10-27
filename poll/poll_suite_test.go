@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"sync"
 	"testing"
 	"time"
 
@@ -138,10 +139,12 @@ func channelTest(
 	ioConfig IOConfig,
 	channel string,
 ) bool {
-	ioConfig.ReadConfig.EnableDelete = false
-	ioConfig.ReadConfig.EnableInsert = false
-	ioConfig.ReadConfig.EnableUpdate = false
-	ioConfig.ReadConfig.EnableQuery = false
+	ioConfig.ReadConfig = ReadConfig{
+		EnableDelete: false,
+		EnableInsert: false,
+		EnableUpdate: false,
+		EnableQuery:  false,
+	}
 
 	switch channel {
 	case "delete":
@@ -169,87 +172,140 @@ func channelTest(
 	)
 
 	channelSuccess := false
+	var csLock sync.RWMutex
+
 	noExtraReads := true
+	var erLock sync.RWMutex
 
-	go func() {
-		for eventResp := range eventsIO.Insert() {
-			e := eventResp.Event
-			Expect(eventResp.Error).ToNot(HaveOccurred())
-
-			log.Println("An Event appeared on insert channel")
-			cidMatch := e.CorrelationID == insertEvent.CorrelationID
-			uuidMatch := e.TimeUUID == insertEvent.TimeUUID
-			if uuidMatch && cidMatch {
-				log.Println("==> A matching Event appeared on insert channel")
-				if channel == "insert" {
-					channelSuccess = true
-					return
-				}
-				noExtraReads = false
-			}
-		}
-	}()
-
-	go func() {
-		for eventResp := range eventsIO.Update() {
-			e := eventResp.Event
-			Expect(eventResp.Error).ToNot(HaveOccurred())
-
-			log.Println("An Event appeared on update channel")
-			cidMatch := e.CorrelationID == updateEvent.CorrelationID
-			uuidMatch := e.TimeUUID == updateEvent.TimeUUID
-			if uuidMatch && cidMatch {
-				log.Println("==> A matching Event appeared on update channel")
-				if channel == "update" {
-					channelSuccess = true
-					return
-				}
-				noExtraReads = false
-			}
-		}
-	}()
-
-	go func() {
-		for eventResp := range eventsIO.Delete() {
-			e := eventResp.Event
-			Expect(eventResp.Error).ToNot(HaveOccurred())
-
-			log.Println("An Event appeared on delete channel")
-			cidMatch := e.CorrelationID == deleteEvent.CorrelationID
-			uuidMatch := e.TimeUUID == deleteEvent.TimeUUID
-			if uuidMatch && cidMatch {
-				log.Println("==> A matching Event appeared on delete channel")
-				if channel == "delete" {
-					channelSuccess = true
-					return
-				}
-				noExtraReads = false
-			}
-		}
-	}()
-
-	go func() {
-		for eventResp := range eventsIO.Query() {
-			e := eventResp.Event
-			Expect(eventResp.Error).ToNot(HaveOccurred())
-
-			log.Println("An Event appeared on query channel")
-			cidMatch := e.CorrelationID == queryEvent.CorrelationID
-			uuidMatch := e.TimeUUID == queryEvent.TimeUUID
-			if uuidMatch && cidMatch {
-				log.Println("==> A matching Event appeared on query channel")
-				if channel == "query" {
-					channelSuccess = true
-					return
-				}
-				noExtraReads = false
-			}
-		}
-	}()
+	g := eventsIO.RoutinesGroup()
 
 	// Allow additional time for Kafka setups and warmups
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+
+	g.Go(func() error {
+		for {
+			select {
+			case <-ctx.Done():
+				return errors.New("timed out")
+			case eventResp := <-eventsIO.Insert():
+				if eventResp == nil {
+					continue
+				}
+				e := eventResp.Event
+				Expect(eventResp.Error).ToNot(HaveOccurred())
+
+				log.Println("An Event appeared on insert channel")
+				cidMatch := e.CorrelationID == insertEvent.CorrelationID
+				uuidMatch := e.TimeUUID == insertEvent.TimeUUID
+				if uuidMatch && cidMatch {
+					log.Println("==> A matching Event appeared on insert channel ")
+					if channel == "insert" {
+						csLock.Lock()
+						channelSuccess = true
+						csLock.Unlock()
+						return nil
+					}
+					erLock.Lock()
+					noExtraReads = false
+					erLock.Unlock()
+				}
+			}
+		}
+	})
+
+	g.Go(func() error {
+		for {
+			select {
+			case <-ctx.Done():
+				return errors.New("timed out")
+			case eventResp := <-eventsIO.Update():
+				if eventResp == nil {
+					continue
+				}
+				e := eventResp.Event
+				Expect(eventResp.Error).ToNot(HaveOccurred())
+
+				log.Println("An Event appeared on update channel")
+				cidMatch := e.CorrelationID == updateEvent.CorrelationID
+				uuidMatch := e.TimeUUID == updateEvent.TimeUUID
+				if uuidMatch && cidMatch {
+					log.Println("==> A matching Event appeared on update channel")
+					if channel == "update" {
+						csLock.Lock()
+						channelSuccess = true
+						csLock.Unlock()
+						return nil
+					}
+					erLock.Lock()
+					noExtraReads = false
+					erLock.Unlock()
+				}
+			}
+		}
+	})
+
+	g.Go(func() error {
+		for {
+			select {
+			case <-ctx.Done():
+				return errors.New("timed out")
+			case eventResp := <-eventsIO.Delete():
+				if eventResp == nil {
+					continue
+				}
+				e := eventResp.Event
+				Expect(eventResp.Error).ToNot(HaveOccurred())
+
+				log.Println("An Event appeared on delete channel")
+				cidMatch := e.CorrelationID == deleteEvent.CorrelationID
+				uuidMatch := e.TimeUUID == deleteEvent.TimeUUID
+				if uuidMatch && cidMatch {
+					log.Println("==> A matching Event appeared on delete channel")
+					if channel == "delete" {
+						csLock.Lock()
+						channelSuccess = true
+						csLock.Unlock()
+						return nil
+					}
+					erLock.Lock()
+					noExtraReads = false
+					erLock.Unlock()
+				}
+			}
+		}
+	})
+
+	g.Go(func() error {
+		for {
+			select {
+			case <-ctx.Done():
+				return errors.New("timed out")
+			case eventResp := <-eventsIO.Query():
+				if eventResp == nil {
+					continue
+				}
+				e := eventResp.Event
+				Expect(eventResp.Error).ToNot(HaveOccurred())
+
+				log.Println("An Event appeared on query channel")
+				cidMatch := e.CorrelationID == queryEvent.CorrelationID
+				uuidMatch := e.TimeUUID == queryEvent.TimeUUID
+				if uuidMatch && cidMatch {
+					log.Println("==> A matching Event appeared on query channel")
+					if channel == "query" {
+						csLock.Lock()
+						channelSuccess = true
+						csLock.Unlock()
+						return nil
+					}
+					erLock.Lock()
+					noExtraReads = false
+					erLock.Unlock()
+				}
+			}
+		}
+	})
 
 resultTimeoutLoop:
 	for {
@@ -257,15 +313,23 @@ resultTimeoutLoop:
 		case <-ctx.Done():
 			break resultTimeoutLoop
 		default:
-			if !noExtraReads {
+			erLock.RLock()
+			er := noExtraReads
+			erLock.RUnlock()
+			if !er {
 				break resultTimeoutLoop
 			}
 		}
 	}
 
 	eventsIO.Close()
+	<-eventsIO.Wait()
+
+	cs := channelSuccess
+	er := noExtraReads
+
 	log.Println("===> Channel: "+channel, eventsTopic)
-	log.Printf("ChannelSuccess: %t", channelSuccess)
-	log.Printf("NoExtraReads: %t", noExtraReads)
-	return channelSuccess && noExtraReads
+	log.Printf("ChannelSuccess: %t", cs)
+	log.Printf("NoExtraReads: %t", er)
+	return cs && er
 }
