@@ -1,13 +1,14 @@
 package poll
 
 import (
-	ctx "context"
+	"context"
 	"log"
 
 	"github.com/TerrexTech/go-eventstore-models/model"
 	"github.com/TerrexTech/go-kafkautils/kafka"
 	"github.com/TerrexTech/go-mongoutils/mongo"
 	"github.com/pkg/errors"
+	"golang.org/x/sync/errgroup"
 )
 
 // ReadConfig allows choosing what type of events should be processed.
@@ -22,20 +23,21 @@ type ReadConfig struct {
 
 // KafkaConfig is the configuration for Kafka, such as brokers and topics.
 type KafkaConfig struct {
-	Brokers []string
-	// Consumer Group-name for Events consumer.
-	ConsumerEventGroup string
-	// Consumer Group-name for EventStoreQuery response-consumer.
-	ConsumerEventQueryGroup string
-	// Topic on which responses from EventStoreQuery should be received.
-	ConsumerEventQueryTopic string
-	// Topic on which new events should be listened for.
-	ConsumerEventTopic string
+	// Consumer for EventStoreQuery-response
+	ESQueryResCons *kafka.ConsumerConfig
+	// Consumer for Event
+	EventCons *kafka.ConsumerConfig
+
+	// Producer for making requests to ESQuery
+	ESQueryReqProd *kafka.ProducerConfig
+	// Service-response Producer
+	SvcResponseProd *kafka.ProducerConfig
+
 	// Topic on which requests to EventStoreQuery should be sent.
-	ProducerEventQueryTopic string
+	ESQueryReqTopic string
 	// Topic on which the service should produce its response/results,
 	// for use by other services.
-	ProducerResponseTopic string
+	SvcResponseTopic string
 }
 
 // MongoConfig is the configuration for MongoDB client.
@@ -84,35 +86,35 @@ func validateConfig(config IOConfig) error {
 		)
 	}
 
-	kfConfig := config.KafkaConfig
-	if kfConfig.ConsumerEventGroup == "" {
+	kc := config.KafkaConfig
+	if kc.ESQueryResCons == nil {
 		return errors.New(
-			"KafkaConfig: ConsumerEventGroup is required, but none was specified",
+			"KafkaConfig: ESQueryResCons is required, but none was specified",
 		)
 	}
-	if kfConfig.ConsumerEventQueryGroup == "" {
+	if kc.EventCons == nil {
 		return errors.New(
-			"KafkaConfig: ConsumerEventQueryGroup is required, but none was specified",
+			"KafkaConfig: EventCons is required, but none was specified",
 		)
 	}
-	if kfConfig.ConsumerEventQueryTopic == "" {
+	if kc.ESQueryReqProd == nil {
 		return errors.New(
-			"KafkaConfig: ConsumerEventQueryTopic is required, but none was specified",
+			"KafkaConfig: ESQueryReqProd is required, but none was specified",
 		)
 	}
-	if kfConfig.ConsumerEventTopic == "" {
+	if kc.SvcResponseProd == nil {
 		return errors.New(
-			"KafkaConfig: ConsumerEventTopic is required, but none was specified",
+			"KafkaConfig: SvcResponseProd is required, but none was specified",
 		)
 	}
-	if kfConfig.ProducerEventQueryTopic == "" {
+	if kc.ESQueryReqTopic == "" {
 		return errors.New(
-			"KafkaConfig: ProducerEventQueryTopic is required, but none was specified",
+			"KafkaConfig: ESQueryReqTopic is required, but none was specified",
 		)
 	}
-	if kfConfig.ProducerResponseTopic == "" {
+	if kc.SvcResponseTopic == "" {
 		return errors.New(
-			"KafkaConfig: ProducerResponseTopic is required, but none was specified",
+			"KafkaConfig: SvcResponseTopic is required, but none was specified",
 		)
 	}
 
@@ -139,38 +141,26 @@ func Init(config IOConfig) (*EventsIO, error) {
 		return nil, err
 	}
 
-	cancelCtx, cancel := ctx.WithCancel(ctx.Background())
 	krChan := make(chan *model.KafkaResponse)
-	eventsIO := &EventsIO{
-		cancelCtx:   &cancelCtx,
-		cancelFunc:  &cancel,
-		resultInput: krChan,
-		delete:      make(chan *EventResponse),
-		insert:      make(chan *EventResponse),
-		query:       make(chan *EventResponse),
-		update:      make(chan *EventResponse),
-	}
 
-	kfConfig := config.KafkaConfig
-	mgConfig := config.MongoConfig
+	ctx, cancel := context.WithCancel(context.Background())
+	g, ctx := errgroup.WithContext(ctx)
 
-	// Events Consumer
-	log.Println("Initializing Events Consumer")
-	eventConsConf := &kafka.ConsumerConfig{
-		GroupName:    kfConfig.ConsumerEventGroup,
-		KafkaBrokers: kfConfig.Brokers,
-		Topics:       []string{kfConfig.ConsumerEventTopic},
-	}
-	eventConsumer, err := kafka.NewConsumer(eventConsConf)
-	if err != nil {
+	// closeChan will close all components of EventsPoll when anything is sent to it.
+	closeChan := make(chan struct{})
+	g.Go(func() error {
+		<-closeChan
+		log.Println("Received Close signal")
+		close(krChan)
+		log.Println("Signalling routines to close")
 		cancel()
-		return nil, err
-	}
+		close(closeChan)
+		return nil
+	})
 
-	prodConf := kafka.ProducerConfig{
-		KafkaBrokers: kfConfig.Brokers,
-	}
+	eventsIO := newEventsIO(ctx, g, closeChan, krChan)
 
+	mgConfig := config.MongoConfig
 	metaCollection, err := createMetaCollection(
 		mgConfig.AggregateID,
 		mgConfig.Connection,
@@ -178,98 +168,195 @@ func Init(config IOConfig) (*EventsIO, error) {
 		mgConfig.MetaCollectionName,
 	)
 	if err != nil {
-		cancel()
+		closeChan <- struct{}{}
 		err = errors.Wrap(err, "Error initializing Meta-Collection")
 		return nil, err
 	}
 
-	// EventStoreQuery Request Producer
+	kfConfig := config.KafkaConfig
+
+	// ESQueryRequest-Producer
+	log.Println("Initializing ESQueryRequest-Producer")
 	eventRespChan := make(chan model.KafkaResponse)
-	log.Println("Initializing EventStoreQuery Request Producer")
-	esqReqProdConfig := &esQueryReqProdConfig{
+	err = esQueryReqProducer(&esQueryReqProdConfig{
+		g:        g,
+		closeCtx: ctx,
+
 		aggID:           mgConfig.AggregateID,
-		cancelCtx:       &cancelCtx,
+		kafkaProdConfig: kfConfig.ESQueryReqProd,
+		kafkaTopic:      kfConfig.ESQueryReqTopic,
+		eventRespChan:   (<-chan model.KafkaResponse)(eventRespChan),
 		mongoColl:       metaCollection,
-		kafkaProdConfig: prodConf,
-		eventRespChan:   eventRespChan,
-		kafkaTopic:      kfConfig.ProducerEventQueryTopic,
-	}
-	err = esQueryReqProducer(esqReqProdConfig)
+	})
 	if err != nil {
-		cancel()
+		closeChan <- struct{}{}
 		return nil, err
 	}
 
-	// EventStoreQuery Response Consumer
-	log.Println("Initializing EventStoreQuery Response Consumer")
-	esRespConf := &kafka.ConsumerConfig{
-		GroupName:    kfConfig.ConsumerEventQueryGroup,
-		KafkaBrokers: kfConfig.Brokers,
-		Topics:       []string{kfConfig.ConsumerEventQueryTopic},
-	}
-	esRespConsumer, err := kafka.NewConsumer(esRespConf)
+	// ESQueryResponse-Consumer
+	log.Println("Initializing ESQueryResponse-Consumer")
+	esRespConsumer, err := kafka.NewConsumer(kfConfig.ESQueryResCons)
 	if err != nil {
-		cancel()
+		err = errors.Wrap(err, "Error creating ESQueryResponse-Consumer")
+		closeChan <- struct{}{}
 		return nil, err
 	}
+	g.Go(func() error {
+		var consErr error
+	errLoop:
+		for {
+			select {
+			case <-ctx.Done():
+				break errLoop
+			case err := <-esRespConsumer.Errors():
+				if err != nil {
+					err = errors.Wrap(err, "Error in ESQueryResponse-Consumer")
+					log.Println(err)
+					consErr = err
+					break errLoop
+				}
+			}
+		}
+		log.Println("--> Closed ESQueryResponse-Consumer error-routine")
+		return consErr
+	})
 
 	// Result Producer
-	log.Println("Initializing Result Producer")
-
-	err = resultProducer(
-		&cancelCtx,
-		prodConf,
-		kfConfig.ProducerResponseTopic,
-		(<-chan *model.KafkaResponse)(krChan),
-	)
+	log.Println("Initializing Result-Producer")
+	err = resultProducer(&resultProducerConfig{
+		g:          g,
+		closeCtx:   ctx,
+		resultChan: (<-chan *model.KafkaResponse)(krChan),
+		prodConfig: kfConfig.SvcResponseProd,
+		prodTopic:  kfConfig.SvcResponseTopic,
+	})
 	if err != nil {
-		cancel()
+		closeChan <- struct{}{}
 		return nil, err
 	}
+
+	// Event-Consumer
+	log.Println("Initializing Event-Consumer")
+	eventConsumer, err := kafka.NewConsumer(kfConfig.EventCons)
+	if err != nil {
+		err = errors.Wrap(err, "Error creating Event-Consumer")
+		closeChan <- struct{}{}
+		return nil, err
+	}
+	g.Go(func() error {
+		var consErr error
+	errLoop:
+		for {
+			select {
+			case <-ctx.Done():
+				break errLoop
+			case err := <-eventConsumer.Errors():
+				if err != nil {
+					err = errors.Wrap(err, "Error in Event-Consumer")
+					log.Println(err)
+					consErr = err
+					break errLoop
+				}
+			}
+		}
+		log.Println("--> Closed Event-Consumer error-routine")
+		return consErr
+	})
 
 	log.Println("Starting Consumers")
 
-	// Close Consumers as per CancelContext
-	go func() {
-		<-cancelCtx.Done()
-		err := eventConsumer.Close()
-		if err != nil {
-			err = errors.Wrap(err, "Error closing EventConsumer")
+	// Event-Consumer Messages
+	g.Go(func() error {
+		handler := &eventHandler{
+			eventRespChan: (chan<- model.KafkaResponse)(eventRespChan),
 		}
-		log.Println("--> Closed EventConsumer")
-		err = esRespConsumer.Close()
+		err := eventConsumer.Consume(ctx, handler)
 		if err != nil {
-			err = errors.Wrap(err, "Error closing ESResponseConsumer")
-		}
-		log.Println("--> Closed ESResponseConsumer")
-	}()
-
-	// Event Consumer
-	go func() {
-		handler := &eventHandler{eventRespChan}
-		err = eventConsumer.Consume(cancelCtx, handler)
-		if err != nil {
-			cancel()
 			err = errors.Wrap(err, "Failed to consume Events")
-			log.Fatalln(err)
 		}
-	}()
+		log.Println("--> Closed Event-Consumer")
+		return err
+	})
 
-	// ESQuery Response Consumer
-	go func() {
+	// ESQueryResponse-Consumer Messages
+	g.Go(func() error {
 		handler := &esRespHandler{
 			aggID:          config.MongoConfig.AggregateID,
 			eventsIO:       eventsIO,
 			readConfig:     config.ReadConfig,
 			metaCollection: metaCollection,
+			versionChan:    make(chan int64, 128),
 		}
-		err = esRespConsumer.Consume(cancelCtx, handler)
+		err = esRespConsumer.Consume(ctx, handler)
 		if err != nil {
-			cancel()
-			err = errors.Wrap(err, "Failed to consume EventStoreQuery-Response")
-			log.Fatalln(err)
+			err = errors.Wrap(err, "Failed to consume ESQueryResponse")
 		}
-	}()
+		log.Println("--> Closed ESQueryResponse-Consumer")
+		return err
+	})
+
+	// Drain svcResponse-channel
+	g.Go(func() error {
+		<-ctx.Done()
+		for kr := range eventRespChan {
+			log.Printf("EventResponse: Drained response with ID: %s", kr.UUID)
+		}
+		log.Println("--> Closed EventResponse drain-routine")
+		return nil
+	})
+
+	// Drain ResultProducer-channel
+	g.Go(func() error {
+		<-ctx.Done()
+		for kr := range krChan {
+			log.Printf("svcResult: Drained result with ID: %s", kr.UUID)
+		}
+		log.Println("--> Closed svcResult drain-routine")
+		return nil
+	})
+
+	// Drain io-channels
+	rc := config.ReadConfig
+	if rc.EnableDelete {
+		g.Go(func() error {
+			<-ctx.Done()
+			for e := range eventsIO.delete {
+				log.Printf("Delete: Drained event with ID: %s", e.Event.TimeUUID)
+			}
+			log.Println("--> Closed Delete drain-routine")
+			return nil
+		})
+	}
+	if rc.EnableInsert {
+		g.Go(func() error {
+			<-ctx.Done()
+			for e := range eventsIO.insert {
+				log.Printf("Insert: Drained event with ID: %s", e.Event.TimeUUID)
+			}
+			log.Println("--> Closed Insert drain-routine")
+			return nil
+		})
+	}
+	if rc.EnableQuery {
+		g.Go(func() error {
+			<-ctx.Done()
+			for e := range eventsIO.query {
+				log.Printf("Query: Drained event with ID: %s", e.Event.TimeUUID)
+			}
+			log.Println("--> Closed Query drain-routine")
+			return nil
+		})
+	}
+	if rc.EnableUpdate {
+		g.Go(func() error {
+			<-ctx.Done()
+			for e := range eventsIO.update {
+				log.Printf("Update: Drained event with ID: %s", e.Event.TimeUUID)
+			}
+			log.Println("--> Closed Update drain-routine")
+			return nil
+		})
+	}
 
 	log.Println("Events-Poll Service Initialized")
 	return eventsIO, nil

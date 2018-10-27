@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/Shopify/sarama"
@@ -102,21 +103,33 @@ var _ = Describe("Consumers", func() {
 		)
 		eventsTopic = os.Getenv("KAFKA_PRODUCER_EVENT_TOPIC")
 
-		consumerEventGroup := os.Getenv("KAFKA_CONSUMER_EVENT_GROUP")
-		consumerEventQueryGroup := os.Getenv("KAFKA_CONSUMER_EVENT_QUERY_GROUP")
-		consumerEventTopic := os.Getenv("KAFKA_CONSUMER_EVENT_TOPIC")
-		consumerEventQueryTopic := os.Getenv("KAFKA_CONSUMER_EVENT_QUERY_TOPIC")
-		producerEventQueryTopic := os.Getenv("KAFKA_PRODUCER_EVENT_QUERY_TOPIC")
-		producerResponseTopic := os.Getenv("KAFKA_PRODUCER_RESPONSE_TOPIC")
+		cEventGroup := os.Getenv("KAFKA_CONSUMER_EVENT_GROUP")
+		cESQueryGroup := os.Getenv("KAFKA_CONSUMER_EVENT_QUERY_GROUP")
+		cEventTopic := os.Getenv("KAFKA_CONSUMER_EVENT_TOPIC")
+		cESQueryTopic := os.Getenv("KAFKA_CONSUMER_EVENT_QUERY_TOPIC")
+		pESQueryTopic := os.Getenv("KAFKA_PRODUCER_EVENT_QUERY_TOPIC")
+		pResponseTopic := os.Getenv("KAFKA_PRODUCER_RESPONSE_TOPIC")
 
 		kc := KafkaConfig{
-			Brokers:                 kafkaBrokers,
-			ConsumerEventGroup:      consumerEventGroup,
-			ConsumerEventQueryGroup: consumerEventQueryGroup,
-			ConsumerEventTopic:      consumerEventTopic,
-			ConsumerEventQueryTopic: consumerEventQueryTopic,
-			ProducerEventQueryTopic: producerEventQueryTopic,
-			ProducerResponseTopic:   producerResponseTopic,
+			EventCons: &kafka.ConsumerConfig{
+				KafkaBrokers: kafkaBrokers,
+				GroupName:    cEventGroup,
+				Topics:       []string{cEventTopic},
+			},
+			ESQueryResCons: &kafka.ConsumerConfig{
+				KafkaBrokers: kafkaBrokers,
+				GroupName:    cESQueryGroup,
+				Topics:       []string{cESQueryTopic},
+			},
+
+			ESQueryReqProd: &kafka.ProducerConfig{
+				KafkaBrokers: kafkaBrokers,
+			},
+			SvcResponseProd: &kafka.ProducerConfig{
+				KafkaBrokers: kafkaBrokers,
+			},
+			ESQueryReqTopic:  pESQueryTopic,
+			SvcResponseTopic: pResponseTopic,
 		}
 		mc := MongoConfig{
 			AggregateID:        113,
@@ -140,116 +153,153 @@ var _ = Describe("Consumers", func() {
 		eventProdInput = p.Input()
 	})
 
-	// Context("Events are produced", func() {
-	Specify("Events should appear on their respective channel", func() {
-		insertEvent := mockEvent(eventProdInput, eventsTopic, "insert")
-		updateEvent := mockEvent(eventProdInput, eventsTopic, "update")
-		deleteEvent := mockEvent(eventProdInput, eventsTopic, "delete")
+	Context("Events are produced", func() {
+		Specify("Events should appear on their respective channel", func() {
+			deleteEvent := mockEvent(eventProdInput, eventsTopic, "delete")
+			insertEvent := mockEvent(eventProdInput, eventsTopic, "insert")
+			updateEvent := mockEvent(eventProdInput, eventsTopic, "update")
 
-		log.Println(
-			"Checking if the event-channels received the event, " +
-				"with timeout of 20 seconds",
-		)
+			log.Println(
+				"Checking if the event-channels received the event, " +
+					"with timeout of 20 seconds",
+			)
 
-		ioConfig.ReadConfig = ReadConfig{
-			EnableDelete: true,
-			EnableInsert: true,
-			EnableUpdate: true,
-			EnableQuery:  false,
-		}
+			ioConfig.ReadConfig = ReadConfig{
+				EnableDelete: true,
+				EnableInsert: true,
+				EnableUpdate: true,
+				EnableQuery:  false,
+			}
 
-		eventsIO, err := Init(ioConfig)
-		Expect(err).ToNot(HaveOccurred())
+			eventsIO, err := Init(ioConfig)
+			Expect(err).ToNot(HaveOccurred())
 
-		insertSuccess := false
-		updateSuccess := false
-		deleteSuccess := false
+			insertSuccess := false
+			var insertLock sync.RWMutex
 
-		closeChan := make(chan struct{})
-		go func() {
-			for {
-				select {
-				case <-closeChan:
-					return
-				case eventResp := <-eventsIO.Insert():
-					e := eventResp.Event
-					Expect(eventResp.Error).ToNot(HaveOccurred())
+			updateSuccess := false
+			var updateLock sync.RWMutex
 
-					log.Println("An Event appeared on insert channel")
-					cidMatch := e.CorrelationID == insertEvent.CorrelationID
-					uuidMatch := e.TimeUUID == insertEvent.TimeUUID
-					if uuidMatch && cidMatch {
-						log.Println("A matching Event appeared on insert channel")
-						insertSuccess = true
-						return
+			deleteSuccess := false
+			var deleteLock sync.RWMutex
+
+			g := eventsIO.RoutinesGroup()
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+
+			g.Go(func() error {
+				for {
+					select {
+					case <-ctx.Done():
+						return errors.New("timed out")
+					case eventResp := <-eventsIO.Insert():
+						if eventResp == nil {
+							continue
+						}
+						e := eventResp.Event
+						Expect(eventResp.Error).ToNot(HaveOccurred())
+
+						log.Println("An Event appeared on insert channel")
+						cidMatch := e.CorrelationID == insertEvent.CorrelationID
+						uuidMatch := e.TimeUUID == insertEvent.TimeUUID
+						if uuidMatch && cidMatch {
+							log.Println("==> A matching Event appeared on insert channel")
+							insertLock.Lock()
+							insertSuccess = true
+							insertLock.Unlock()
+							return nil
+						}
 					}
 				}
-			}
-		}()
+			})
 
-		go func() {
-			for {
-				select {
-				case <-closeChan:
-					return
-				case eventResp := <-eventsIO.Update():
-					e := eventResp.Event
-					Expect(eventResp.Error).ToNot(HaveOccurred())
+			g.Go(func() error {
+				for {
+					select {
+					case <-ctx.Done():
+						return errors.New("timed out")
+					case eventResp := <-eventsIO.Update():
+						if eventResp == nil {
+							continue
+						}
+						e := eventResp.Event
+						Expect(eventResp.Error).ToNot(HaveOccurred())
 
-					log.Println("An Event appeared on update channel")
-					cidMatch := e.CorrelationID == updateEvent.CorrelationID
-					uuidMatch := e.TimeUUID == updateEvent.TimeUUID
-					if uuidMatch && cidMatch {
-						log.Println("A matching Event appeared on update channel")
-						updateSuccess = true
-						return
+						log.Println("An Event appeared on update channel")
+						cidMatch := e.CorrelationID == updateEvent.CorrelationID
+						uuidMatch := e.TimeUUID == updateEvent.TimeUUID
+						if uuidMatch && cidMatch {
+							log.Println("==> A matching Event appeared on update channel")
+							updateLock.Lock()
+							updateSuccess = true
+							updateLock.Unlock()
+							return nil
+						}
 					}
 				}
-			}
-		}()
+			})
 
-		go func() {
-			for {
-				select {
-				case <-closeChan:
-					return
-				case eventResp := <-eventsIO.Delete():
-					e := eventResp.Event
-					Expect(eventResp.Error).ToNot(HaveOccurred())
+			g.Go(func() error {
+				for {
+					select {
+					case <-ctx.Done():
+						return errors.New("timed out")
+					case eventResp := <-eventsIO.Delete():
+						if eventResp == nil {
+							continue
+						}
+						e := eventResp.Event
+						Expect(eventResp.Error).ToNot(HaveOccurred())
 
-					log.Println("An Event appeared on delete channel")
-					cidMatch := e.CorrelationID == deleteEvent.CorrelationID
-					uuidMatch := e.TimeUUID == deleteEvent.TimeUUID
-					if uuidMatch && cidMatch {
-						log.Println("A matching Event appeared on delete channel")
-						deleteSuccess = true
-						return
+						log.Println("An Event appeared on delete channel")
+						cidMatch := e.CorrelationID == deleteEvent.CorrelationID
+						uuidMatch := e.TimeUUID == deleteEvent.TimeUUID
+						if uuidMatch && cidMatch {
+							log.Println("==> A matching Event appeared on delete channel")
+							deleteLock.Lock()
+							deleteSuccess = true
+							deleteLock.Unlock()
+							return nil
+						}
 					}
 				}
-			}
-		}()
+			})
 
-		// Allow additional time for Kafka setups and warmups
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
+			ds := false
+			is := false
+			us := false
 
-	resultTimeoutLoop:
-		for {
-			select {
-			case <-ctx.Done():
-				closeChan <- struct{}{}
-				break resultTimeoutLoop
-			default:
-				if insertSuccess && deleteSuccess && updateSuccess {
+		resultTimeoutLoop:
+			for {
+				select {
+				case <-ctx.Done():
 					break resultTimeoutLoop
+				default:
+					deleteLock.RLock()
+					ds = deleteSuccess
+					deleteLock.RUnlock()
+
+					insertLock.RLock()
+					is = insertSuccess
+					insertLock.RUnlock()
+
+					updateLock.RLock()
+					us = updateSuccess
+					updateLock.RUnlock()
+
+					if ds && is && us {
+						break resultTimeoutLoop
+					}
 				}
 			}
-		}
 
-		eventsIO.Close()
-		Expect(insertSuccess).To(BeTrue())
-		Expect(updateSuccess).To(BeTrue())
-		Expect(deleteSuccess).To(BeTrue())
+			eventsIO.Close()
+			<-eventsIO.Wait()
+
+			Expect(is).To(BeTrue())
+			Expect(us).To(BeTrue())
+			Expect(ds).To(BeTrue())
+		})
 	})
 
 	Specify("test delete channel", func() {
@@ -303,7 +353,7 @@ var _ = Describe("Consumers", func() {
 			consCfg := &kafka.ConsumerConfig{
 				GroupName:    "poll-test-group",
 				KafkaBrokers: kafkaBrokers,
-				Topics:       []string{kfConfig.ProducerResponseTopic},
+				Topics:       []string{kfConfig.SvcResponseTopic},
 			}
 			respConsumer, err := kafka.NewConsumer(consCfg)
 			Expect(err).ToNot(HaveOccurred())
@@ -337,6 +387,7 @@ var _ = Describe("Consumers", func() {
 			}
 			eventsIO.ProduceResult() <- kr
 			eventsIO.Close()
+			<-eventsIO.Wait()
 
 			msgCallback := func(msg *sarama.ConsumerMessage) bool {
 				log.Println("A Response was received on response channel")
@@ -362,17 +413,23 @@ var _ = Describe("Consumers", func() {
 	})
 
 	It("should execute cancel-context when the service is closed", func(done Done) {
-		// Change ConsumerGroup so it doesn't interfere with other parallel tests' groups
-		ioConfig.KafkaConfig.ConsumerEventGroup = "test-e-group-close-2"
-		ioConfig.KafkaConfig.ConsumerEventQueryGroup = "test-eq-group-close-2"
+		kc := ioConfig.KafkaConfig
+		// Change ConsumerGroup so it doesn't interfere with other tests' groups
+		kc.EventCons.GroupName = "test-e-group-close-2"
+		kc.ESQueryResCons.GroupName = "test-eq-group-close-2"
+
+		ioConfig.ReadConfig = ReadConfig{
+			EnableDelete: false,
+			EnableInsert: true,
+			EnableQuery:  false,
+			EnableUpdate: false,
+		}
+
 		eventsIO, err := Init(ioConfig)
 		Expect(err).ToNot(HaveOccurred())
 
-		go func() {
-			cancelCtx := *eventsIO.CancelCtx()
-			<-cancelCtx.Done()
-			close(done)
-		}()
 		eventsIO.Close()
-	}, 5)
+		<-eventsIO.Wait()
+		close(done)
+	}, 15)
 })

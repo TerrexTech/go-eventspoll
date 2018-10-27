@@ -1,7 +1,6 @@
 package poll
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -26,139 +25,140 @@ type esRespHandler struct {
 	eventsIO       *EventsIO
 	readConfig     ReadConfig
 	metaCollection *mongo.Collection
+
+	versionChan chan int64
 }
 
-func (*esRespHandler) Setup(sarama.ConsumerGroupSession) error {
-	log.Println("Initializing Kafka ESQueryRespConsumer")
+func (e *esRespHandler) Setup(sarama.ConsumerGroupSession) error {
+	log.Println("Initializing ESQueryResponse-Consumer")
+	go updateAggMeta(e.aggID, e.metaCollection, (<-chan int64)(e.versionChan))
+
 	return nil
 }
 
-func (*esRespHandler) Cleanup(sarama.ConsumerGroupSession) error {
-	log.Println("Closing Kafka ESQueryRespConsumer")
-	return nil
+func (e *esRespHandler) Cleanup(sarama.ConsumerGroupSession) error {
+	log.Println("Closing ESQueryRespConsumer")
+
+	go close(e.eventsIO.delete)
+	go close(e.eventsIO.insert)
+	go close(e.eventsIO.query)
+	go close(e.eventsIO.update)
+	go close(e.versionChan)
+
+	return errors.New("ESQueryResponse-Consumer unexpectedly closed")
 }
 
 func (e *esRespHandler) ConsumeClaim(
 	session sarama.ConsumerGroupSession,
 	claim sarama.ConsumerGroupClaim,
 ) error {
-	log.Println("Listening for EventStoreQuery-Responses...")
+	log.Println("ESQueryResponse-Consumer Listening...")
+	for {
+		select {
+		case <-session.Context().Done():
+			return errors.New("ESQueryResponse-Consumer: session closed")
 
-	// Buffered, in case writing to DB takes longer than expected
-	versionChan := make(chan int64, 100)
-	updateAggMeta(
-		session.Context(),
-		e.aggID,
-		e.metaCollection,
-		(<-chan int64)(versionChan),
-	)
-
-	for msg := range claim.Messages() {
-		kr := &model.KafkaResponse{}
-		err := json.Unmarshal(msg.Value, kr)
-		if err != nil {
-			err = errors.Wrap(err, "Error Unmarshalling ESQuery-Response into KafkaResponse")
-			log.Println(err)
-			continue
-		}
-
-		var krError error
-		if kr.Error != "" {
-			krError = fmt.Errorf("Error %d: %s", kr.ErrorCode, kr.Error)
-		}
-
-		// Get all events from KafkaResponse
-		events := &[]model.Event{}
-		err = json.Unmarshal(kr.Result, events)
-		if err != nil {
-			err = errors.Wrap(err, "Error Unmarshalling KafkaResult into Events")
-			log.Println(err)
-
-			uuid, uerr := uuuid.NewV4()
-			if uerr != nil {
-				uerr = errors.Wrap(uerr, "Error getting UUID for KafkaResponse")
-				uuid = uuuid.UUID{}
-			}
-			e.eventsIO.ProduceResult() <- &model.KafkaResponse{
-				AggregateID:   kr.AggregateID,
-				CorrelationID: kr.CorrelationID,
-				Error:         err.Error(),
-				ErrorCode:     ec.InternalError,
-				UUID:          uuid,
-			}
-			continue
-		}
-
-		// Distribute events to their respective channels
-		for _, event := range *events {
-			eventResp := &EventResponse{
-				Event: event,
-				Error: krError,
+		case msg := <-claim.Messages():
+			kr := &model.KafkaResponse{}
+			err := json.Unmarshal(msg.Value, kr)
+			if err != nil {
+				err = errors.Wrap(err, "Error Unmarshalling ESQueryResponse into KafkaResponse")
+				log.Println(err)
+				continue
 			}
 
-			switch event.Action {
-			case "delete":
-				if e.readConfig.EnableDelete {
-					e.eventsIO.delete <- eventResp
-					session.MarkMessage(msg, "")
-					versionChan <- event.Version
+			var krError error
+			if kr.Error != "" {
+				krError = fmt.Errorf("Error %d: %s", kr.ErrorCode, kr.Error)
+			}
+
+			// Get all events from KafkaResponse
+			events := &[]model.Event{}
+			err = json.Unmarshal(kr.Result, events)
+			if err != nil {
+				err = errors.Wrap(
+					err,
+					"ESQueryResponse-Consumer: Error Unmarshalling KafkaResult into Events",
+				)
+				log.Println(err)
+
+				uuid, uerr := uuuid.NewV4()
+				if uerr != nil {
+					uerr = errors.Wrap(uerr, "Error getting UUID for KafkaResponse")
+					uuid = uuuid.UUID{}
 				}
-			case "insert":
-				if e.readConfig.EnableInsert {
-					e.eventsIO.insert <- eventResp
-					session.MarkMessage(msg, "")
-					versionChan <- event.Version
+				e.eventsIO.ProduceResult() <- &model.KafkaResponse{
+					AggregateID:   kr.AggregateID,
+					CorrelationID: kr.CorrelationID,
+					Error:         err.Error(),
+					ErrorCode:     ec.InternalError,
+					UUID:          uuid,
 				}
-			case "query":
-				if e.readConfig.EnableQuery {
-					// We can give user error message if query fails,
-					// and we don't want query-messages to accumulate if some service fails,
-					// so we mark them here
-					session.MarkMessage(msg, "")
-					e.eventsIO.query <- eventResp
-					versionChan <- event.Version
+				continue
+			}
+
+			// Distribute events to their respective channels
+			for _, event := range *events {
+				eventResp := &EventResponse{
+					Event: event,
+					Error: krError,
 				}
-			case "update":
-				if e.readConfig.EnableUpdate {
-					e.eventsIO.update <- eventResp
+
+				switch event.Action {
+				case "delete":
+					if e.readConfig.EnableDelete {
+						e.eventsIO.delete <- eventResp
+						session.MarkMessage(msg, "")
+						e.versionChan <- event.Version
+					}
+				case "insert":
+					if e.readConfig.EnableInsert {
+						e.eventsIO.insert <- eventResp
+						session.MarkMessage(msg, "")
+						e.versionChan <- event.Version
+					}
+				case "query":
+					if e.readConfig.EnableQuery {
+						session.MarkMessage(msg, "")
+						e.eventsIO.query <- eventResp
+						e.versionChan <- event.Version
+					}
+				case "update":
+					if e.readConfig.EnableUpdate {
+						e.eventsIO.update <- eventResp
+						session.MarkMessage(msg, "")
+						e.versionChan <- event.Version
+					}
+				default:
+					log.Printf("Invalid Action found in Event %s", event.TimeUUID)
 					session.MarkMessage(msg, "")
-					versionChan <- event.Version
 				}
-			default:
-				log.Printf("Invalid Action found in Event %s", event.TimeUUID)
-				session.MarkMessage(msg, "")
 			}
 		}
 	}
-	return nil
 }
 
-func updateAggMeta(
-	ctx context.Context,
-	aggID int8,
-	coll *mongo.Collection,
-	versionChan <-chan int64,
-) {
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				log.Println("--> Closed Aggregate meta-update routine")
-				return
-			case version := <-versionChan:
-				filter := &AggregateMeta{
-					AggregateID: aggID,
-				}
-				update := map[string]int64{
-					"version": version,
-				}
-				_, err := coll.UpdateMany(filter, update)
-				// Non-fatal error, so we'll just print this to stdout for info, for now
-				if err != nil {
-					err = errors.Wrap(err, "Error updating AggregateMeta")
-					log.Println(err)
-				}
-			}
+func updateAggMeta(aggID int8, coll *mongo.Collection, versionChan <-chan int64) {
+	for version := range versionChan {
+		if version == 0 {
+			continue
 		}
-	}()
+		filter := &AggregateMeta{
+			AggregateID: aggID,
+		}
+		update := map[string]int64{
+			"version": version,
+		}
+		_, err := coll.UpdateMany(filter, update)
+		// Non-fatal error, so we'll just print this to stdout for info, for now
+		// This is Non-fatal because even if the Aggregate's version doesn't update, it'll only
+		// mean that more events will have to be hydrated, which is more acceptable than
+		// having the service exit.
+		// TODO: Maybe define a limit on number of events?
+		if err != nil {
+			err = errors.Wrap(err, "Error updating AggregateMeta")
+			log.Println(err)
+		}
+	}
+	log.Println("--> Closed Aggregate meta-update routine")
 }

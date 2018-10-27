@@ -3,6 +3,8 @@ package examples
 import (
 	"log"
 
+	"github.com/TerrexTech/go-kafkautils/kafka"
+
 	"github.com/TerrexTech/go-eventspoll/poll"
 	"github.com/TerrexTech/go-eventstore-models/model"
 
@@ -85,16 +87,27 @@ func main() {
 		log.Fatalln(err)
 	}
 
+	kafkaBrokers := []string{"kafka:9092"}
 	kc := poll.KafkaConfig{
-		Brokers: []string{"kafka:9092"},
+		EventCons: &kafka.ConsumerConfig{
+			KafkaBrokers: kafkaBrokers,
+			GroupName:    "my-service.event.consumer.group",
+			Topics:       []string{"event.persistence.response"},
+		},
+		ESQueryResCons: &kafka.ConsumerConfig{
+			KafkaBrokers: kafkaBrokers,
+			GroupName:    "my-service.esquery.consumer.group",
+			Topics:       []string{"esquery.response.2"},
+		},
 
-		ConsumerEventGroup:      "my-service.consumer.group",
-		ConsumerEventQueryGroup: "my-service.esquery.consumer.group",
-
-		ConsumerEventTopic:      "event.rns_eventstore.events",
-		ConsumerEventQueryTopic: "events.rns_eventstore.esresponse.2",
-		ProducerEventQueryTopic: "events.rns_eventstore.esquery",
-		ProducerResponseTopic:   "resp",
+		ESQueryReqProd: &kafka.ProducerConfig{
+			KafkaBrokers: kafkaBrokers,
+		},
+		SvcResponseProd: &kafka.ProducerConfig{
+			KafkaBrokers: kafkaBrokers,
+		},
+		ESQueryReqTopic:  "events.rns_eventstore.esquery",
+		SvcResponseTopic: "resp",
 	}
 	mc := poll.MongoConfig{
 		AggregateID:        2,
@@ -122,9 +135,6 @@ func main() {
 
 	// Handle poll errors
 	go func() {
-		cancelCtx := *eventPoll.CancelCtx()
-		<-cancelCtx.Done()
-		log.Fatalln("A critical error occurred, service will now exit")
 	}()
 
 	go func() {
@@ -135,12 +145,17 @@ func main() {
 		}
 	}()
 
-	// Block the main thread from exiting using one of the channels
-	// Handle Update events
-	for eventResp := range eventPoll.Update() {
-		kafkaResp := handleUpdate(eventResp)
-		eventPoll.ProduceResult() <- kafkaResp
-	}
+	go func() {
+		// Handle Update events
+		for eventResp := range eventPoll.Update() {
+			kafkaResp := handleUpdate(eventResp)
+			eventPoll.ProduceResult() <- kafkaResp
+		}
+	}()
+
+	err = <-eventPoll.Wait()
+	err = errors.Wrap(err, "A critical error occurred")
+	log.Fatalln(err)
 }
 
 func handleInsert(eventResp *poll.EventResponse) *model.KafkaResponse {
