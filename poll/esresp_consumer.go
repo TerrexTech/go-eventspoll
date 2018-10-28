@@ -39,11 +39,11 @@ func (e *esRespHandler) Setup(sarama.ConsumerGroupSession) error {
 func (e *esRespHandler) Cleanup(sarama.ConsumerGroupSession) error {
 	log.Println("Closing ESQueryRespConsumer")
 
-	go close(e.eventsIO.delete)
-	go close(e.eventsIO.insert)
-	go close(e.eventsIO.query)
-	go close(e.eventsIO.update)
-	go close(e.versionChan)
+	close(e.eventsIO.delete)
+	close(e.eventsIO.insert)
+	close(e.eventsIO.query)
+	close(e.eventsIO.update)
+	close(e.versionChan)
 
 	return errors.New("ESQueryResponse-Consumer unexpectedly closed")
 }
@@ -66,6 +66,7 @@ func (e *esRespHandler) ConsumeClaim(
 				log.Println(err)
 				continue
 			}
+			log.Printf("Received ESQueryResponse with ID: %s", kr.UUID)
 
 			var krError error
 			if kr.Error != "" {
