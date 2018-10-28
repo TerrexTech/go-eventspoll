@@ -133,29 +133,26 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	// Handle poll errors
-	go func() {
-	}()
+	// Select-loop to process events in order
+	// Be sure to implement some timeout logic so some case doesn't block forever
+	for {
+		select {
+		// Handle errors
+		case err := <-eventPoll.Wait():
+			err = errors.Wrap(err, "A critical error occurred")
+			log.Fatalln(err)
 
-	go func() {
 		// Handle Insert events
-		for eventResp := range eventPoll.Insert() {
+		case eventResp := <-eventPoll.Insert():
 			kafkaResp := handleInsert(eventResp)
 			eventPoll.ProduceResult() <- kafkaResp
-		}
-	}()
 
-	go func() {
 		// Handle Update events
-		for eventResp := range eventPoll.Update() {
+		case eventResp := <-eventPoll.Update():
 			kafkaResp := handleUpdate(eventResp)
 			eventPoll.ProduceResult() <- kafkaResp
 		}
-	}()
-
-	err = <-eventPoll.Wait()
-	err = errors.Wrap(err, "A critical error occurred")
-	log.Fatalln(err)
+	}
 }
 
 func handleInsert(eventResp *poll.EventResponse) *model.KafkaResponse {
