@@ -44,7 +44,7 @@ services:
       - ./.envp
 
   go-eventstore-query:
-    image: terrextech/go-eventstore-query:v2.0.0
+    image: terrextech/go-eventstore-query:v2.1.0
     env_file:
       - ./.envq
 

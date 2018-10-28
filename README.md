@@ -9,7 +9,7 @@ How it works:
 * Filter events and only process ones for the specified Aggregate.
 * Get the Max Aggregate-Version from Database.
 * Send request to [EventStoreQuery][0] with the Max Aggregate-Version.
-* Get events from EventStoreQuery, and read the `Event.Action`.
+* Get events from EventStoreQuery.
 * Fan-Out events to their respective channels based on `Event.Action`.
 * Send service-response to specified Kafka-topic.
 
