@@ -83,6 +83,9 @@ func (m *msgHandler) ConsumeClaim(
 		return errors.New("msgCallback cannot be nil")
 	}
 	for msg := range claim.Messages() {
+		if msg == nil {
+			continue
+		}
 		session.MarkMessage(msg, "")
 
 		val := m.msgCallback(msg)

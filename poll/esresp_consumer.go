@@ -100,6 +100,9 @@ func (e *esRespHandler) ConsumeClaim(
 
 			// Distribute events to their respective channels
 			for _, event := range *events {
+				if event.TimeUUID == (uuuid.UUID{}) {
+					continue
+				}
 				eventResp := &EventResponse{
 					Event: event,
 					Error: krError,
