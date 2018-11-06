@@ -108,7 +108,7 @@ func mockEvent(
 	topic string,
 	action string,
 ) *model.Event {
-	eventUUID, err := uuuid.NewV1()
+	eventUUID, err := uuuid.NewV4()
 	Expect(err).ToNot(HaveOccurred())
 	userUUID, err := uuuid.NewV4()
 	Expect(err).ToNot(HaveOccurred())
@@ -116,13 +116,13 @@ func mockEvent(
 	cid, err := uuuid.NewV4()
 	Expect(err).ToNot(HaveOccurred())
 	mockEvent := &model.Event{
-		Action:        action,
+		EventAction:   action,
 		AggregateID:   113,
 		CorrelationID: cid,
 		Data:          []byte("test-data"),
-		Timestamp:     time.Now(),
+		NanoTime:      time.Now().UnixNano(),
 		UserUUID:      userUUID,
-		TimeUUID:      eventUUID,
+		UUID:          eventUUID,
 		Version:       233,
 		YearBucket:    2018,
 	}
@@ -200,7 +200,7 @@ func channelTest(
 
 				log.Println("An Event appeared on insert channel")
 				cidMatch := e.CorrelationID == insertEvent.CorrelationID
-				uuidMatch := e.TimeUUID == insertEvent.TimeUUID
+				uuidMatch := e.UUID == insertEvent.UUID
 				if uuidMatch && cidMatch {
 					log.Println("==> A matching Event appeared on insert channel ")
 					if channel == "insert" {
@@ -231,7 +231,7 @@ func channelTest(
 
 				log.Println("An Event appeared on update channel")
 				cidMatch := e.CorrelationID == updateEvent.CorrelationID
-				uuidMatch := e.TimeUUID == updateEvent.TimeUUID
+				uuidMatch := e.UUID == updateEvent.UUID
 				if uuidMatch && cidMatch {
 					log.Println("==> A matching Event appeared on update channel")
 					if channel == "update" {
@@ -262,7 +262,7 @@ func channelTest(
 
 				log.Println("An Event appeared on delete channel")
 				cidMatch := e.CorrelationID == deleteEvent.CorrelationID
-				uuidMatch := e.TimeUUID == deleteEvent.TimeUUID
+				uuidMatch := e.UUID == deleteEvent.UUID
 				if uuidMatch && cidMatch {
 					log.Println("==> A matching Event appeared on delete channel")
 					if channel == "delete" {
@@ -293,7 +293,7 @@ func channelTest(
 
 				log.Println("An Event appeared on query channel")
 				cidMatch := e.CorrelationID == queryEvent.CorrelationID
-				uuidMatch := e.TimeUUID == queryEvent.TimeUUID
+				uuidMatch := e.UUID == queryEvent.UUID
 				if uuidMatch && cidMatch {
 					log.Println("==> A matching Event appeared on query channel")
 					if channel == "query" {

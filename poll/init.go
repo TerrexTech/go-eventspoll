@@ -148,8 +148,14 @@ func Init(config IOConfig) (*EventsIO, error) {
 
 	// closeChan will close all components of EventsPoll when anything is sent to it.
 	closeChan := make(chan struct{})
+
+	eventsIO := newEventsIO(ctx, g, closeChan, krChan)
 	g.Go(func() error {
 		<-closeChan
+		eventsIO.ctxLock.Lock()
+		eventsIO.ctxOpen = false
+		eventsIO.ctxLock.Unlock()
+
 		log.Println("Received Close signal")
 		close(krChan)
 		log.Println("Signalling routines to close")
@@ -157,8 +163,11 @@ func Init(config IOConfig) (*EventsIO, error) {
 		close(closeChan)
 		return nil
 	})
-
-	eventsIO := newEventsIO(ctx, g, closeChan, krChan)
+	g.Go(func() error {
+		<-ctx.Done()
+		eventsIO.Close()
+		return nil
+	})
 
 	mgConfig := config.MongoConfig
 	metaCollection, err := createMetaCollection(
@@ -321,7 +330,7 @@ func Init(config IOConfig) (*EventsIO, error) {
 		g.Go(func() error {
 			<-ctx.Done()
 			for e := range eventsIO.delete {
-				log.Printf("Delete: Drained event with ID: %s", e.Event.TimeUUID)
+				log.Printf("Delete: Drained event with ID: %s", e.Event.UUID)
 			}
 			log.Println("--> Closed Delete drain-routine")
 			return nil
@@ -331,7 +340,7 @@ func Init(config IOConfig) (*EventsIO, error) {
 		g.Go(func() error {
 			<-ctx.Done()
 			for e := range eventsIO.insert {
-				log.Printf("Insert: Drained event with ID: %s", e.Event.TimeUUID)
+				log.Printf("Insert: Drained event with ID: %s", e.Event.UUID)
 			}
 			log.Println("--> Closed Insert drain-routine")
 			return nil
@@ -341,7 +350,7 @@ func Init(config IOConfig) (*EventsIO, error) {
 		g.Go(func() error {
 			<-ctx.Done()
 			for e := range eventsIO.query {
-				log.Printf("Query: Drained event with ID: %s", e.Event.TimeUUID)
+				log.Printf("Query: Drained event with ID: %s", e.Event.UUID)
 			}
 			log.Println("--> Closed Query drain-routine")
 			return nil
@@ -351,7 +360,7 @@ func Init(config IOConfig) (*EventsIO, error) {
 		g.Go(func() error {
 			<-ctx.Done()
 			for e := range eventsIO.update {
-				log.Printf("Update: Drained event with ID: %s", e.Event.TimeUUID)
+				log.Printf("Update: Drained event with ID: %s", e.Event.UUID)
 			}
 			log.Println("--> Closed Update drain-routine")
 			return nil

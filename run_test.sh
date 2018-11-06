@@ -10,7 +10,7 @@ if [[ $rc != 0 ]]
 fi
 
 function ping_cassandra() {
-  docker exec -it cassandra /opt/bitnami/cassandra/bin/nodetool status | grep UN
+  docker exec -it cassandra /usr/bin/nodetool status | grep UN
   res=$?
 }
 
@@ -39,7 +39,7 @@ fi
 # nodetool-status being success.
 # There has to be a better way than this.
 echo "Waiting additional time for Cassandra to be ready."
-add_wait=55
+add_wait=30
 cur_add_wait=0
 while (( ++cur_add_wait != add_wait ))
 do
@@ -65,5 +65,5 @@ sleep 10
 
 docker ps -a
 
-docker-compose up --build --force-recreate go-eventspoll
+docker-compose up --exit-code-from go-eventspoll
 exit $?

@@ -38,14 +38,13 @@ func esQueryReqProducer(config *esQueryReqProdConfig) error {
 		for {
 			select {
 			case <-config.closeCtx.Done():
+				prodErr = errors.New("ESQueryRequest-Producer: session closed")
 				break errLoop
 			case err := <-p.Errors():
 				if err != nil && err.Err != nil {
 					parsedErr := errors.Wrap(err.Err, "Error in ESQueryRequest-Producer")
 					log.Println(parsedErr)
 					log.Println(err)
-					prodErr = err.Err
-					break errLoop
 				}
 			}
 		}
@@ -127,14 +126,13 @@ func resultProducer(config *resultProducerConfig) error {
 		for {
 			select {
 			case <-config.closeCtx.Done():
+				prodErr = errors.New("Result-Producer: session closed")
 				break errLoop
 			case err := <-p.Errors():
 				if err != nil && err.Err != nil {
 					parsedErr := errors.Wrap(err.Err, "Error in Result-Producer")
 					log.Println(parsedErr)
 					log.Println(err)
-					prodErr = err.Err
-					break errLoop
 				}
 			}
 		}

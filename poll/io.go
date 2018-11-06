@@ -2,6 +2,7 @@ package poll
 
 import (
 	"context"
+	"sync"
 
 	"golang.org/x/sync/errgroup"
 
@@ -15,11 +16,15 @@ type EventsIO struct {
 	errGroup    *errgroup.Group
 	errGroupCtx context.Context
 
+	ctxOpen bool
+	ctxLock sync.RWMutex
+
 	delete      chan *EventResponse
 	insert      chan *EventResponse
 	query       chan *EventResponse
 	update      chan *EventResponse
 	resultInput chan<- *model.KafkaResponse
+	waitChan    chan error
 }
 
 func newEventsIO(
@@ -32,6 +37,9 @@ func newEventsIO(
 		closeChan:   closeChan,
 		errGroup:    errGroup,
 		errGroupCtx: errGroupCtx,
+
+		ctxOpen: true,
+		ctxLock: sync.RWMutex{},
 
 		delete:      make(chan *EventResponse, 256),
 		insert:      make(chan *EventResponse, 256),
@@ -53,23 +61,30 @@ func (e *EventsIO) RoutinesCtx() context.Context {
 
 // Wait is a wrapper for errgroup.Wait, and will wait for all EventsPoll and RoutinesGroup
 // routines to exit, and propagate the error from errgroup.Wait.
-// This returns new channel everytime called, so it can be used multiple times in
-// different places.
+// This is not meant to do FanOut, it always returns the same channel.
+// FanOut logic must be implemented by library-user.
 // Note: The resulting channel will get data only once, and is then closed.
 func (e *EventsIO) Wait() <-chan error {
-	waitChan := make(chan error)
-	go func() {
-		err := e.errGroup.Wait()
-		waitChan <- err
-		close(waitChan)
-	}()
-	return (<-chan error)(waitChan)
+	if e.waitChan == nil {
+		e.waitChan = make(chan error)
+		go func() {
+			err := e.errGroup.Wait()
+			e.waitChan <- err
+			close(e.waitChan)
+		}()
+	}
+	return (<-chan error)(e.waitChan)
 }
 
 // Close closes any open routines associated with EventsPoll service, such as
 // Kafka Producers and Consumers. Use this when the service is no longer required.
 func (e *EventsIO) Close() {
-	e.closeChan <- struct{}{}
+	e.ctxLock.Lock()
+	if e.ctxOpen {
+		e.ctxOpen = false
+		e.closeChan <- struct{}{}
+	}
+	e.ctxLock.Unlock()
 }
 
 // Delete is the channel for "delete" events.
