@@ -18,12 +18,12 @@
   version = "v3.1.0"
 
 [[projects]]
-  digest = "1:dee9ede39c2d6dd372cf8ac6df7e2051989c36a1d91565f7b40f4aef432979c5"
+  digest = "1:4d3876e2ce747cfeded59a1210056e894d2593b73e843454a19d7f845afad23e"
   name = "github.com/TerrexTech/go-eventstore-models"
   packages = ["model"]
   pruneopts = "UT"
-  revision = "309bc2e4adb405313be36883daf2b8a7ce09bba9"
-  version = "v3.0.0"
+  revision = "4d0913b6357bca72d45064058f63c02d20c9e2c0"
+  version = "v4.0.0"
 
 [[projects]]
   digest = "1:017b08c994a864ea4e94f1837037c14087f784a1e99d54173eba9050f7a81f74"
@@ -99,7 +99,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:8b69dc4a458a7722d1993db38954a7de6943d6f3ea2f0f2999ea8d4cd7203021"
+  digest = "1:348bbd07b4a983b2f811f81948c78142de09bb9fcf25284bee5e2ab3bdd0f6f9"
   name = "github.com/gocql/gocql"
   packages = [
     ".",
@@ -108,15 +108,15 @@
     "internal/streams",
   ]
   pruneopts = "UT"
-  revision = "271c061c7f16702ca550b0e9721320b1c92e00cb"
+  revision = "68ae1e384be4d7cd7df0f5b77f331759d806308e"
 
 [[projects]]
-  digest = "1:ce579162ae1341f3e5ab30c0dce767f28b1eb6a81359aad01723f1ba6b4becdf"
+  digest = "1:c594a691090b434d55c67f6cc8e326ef5ba49452abc059821bd5d4fd4cdef08c"
   name = "github.com/gofrs/uuid"
   packages = ["."]
   pruneopts = "UT"
-  revision = "370558f003bfe29580cd0f698d8640daccdcc45c"
-  version = "v3.1.1"
+  revision = "7077aa61129615a0d7f45c49101cd011ab221c27"
+  version = "v3.1.2"
 
 [[projects]]
   branch = "master"
@@ -313,7 +313,7 @@
   name = "golang.org/x/crypto"
   packages = ["pbkdf2"]
   pruneopts = "UT"
-  revision = "e84da0312774c21d64ee2317962ef669b27ffb41"
+  revision = "4d3f4d9ffa16a13f451c3b2999e9c49e9750bf06"
 
 [[projects]]
   branch = "master"
@@ -326,7 +326,7 @@
     "html/charset",
   ]
   pruneopts = "UT"
-  revision = "9b4f9f5ad5197c79fd623a3638e70d8b26cef344"
+  revision = "10aee181995363b41f712a55844a0dd52ea04646"
 
 [[projects]]
   branch = "master"
@@ -341,11 +341,11 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:008fb9f84ae9bf7994228b9c78810d44162071ec13caf28291677897dca819ee"
+  digest = "1:bf563be850c4ba68c4de69cd10e3c8b19a6c42b7be70b6d6416b3cf77d1f0208"
   name = "golang.org/x/sys"
   packages = ["unix"]
   pruneopts = "UT"
-  revision = "d989b31c87461dc8ab2f1cac6792814e27fadea9"
+  revision = "7155702f2d47d94b134229da97195d0130cab001"
 
 [[projects]]
   digest = "1:4392fcf42d5cf0e3ff78c96b2acf8223d49e4fdc53eb77c99d2f8dfe4680e006"

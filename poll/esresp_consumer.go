@@ -91,8 +91,10 @@ func (e *esRespHandler) ConsumeClaim(
 				e.eventsIO.ProduceResult() <- &model.KafkaResponse{
 					AggregateID:   kr.AggregateID,
 					CorrelationID: kr.CorrelationID,
+					EventAction:   kr.EventAction,
 					Error:         err.Error(),
 					ErrorCode:     ec.InternalError,
+					ServiceAction: kr.ServiceAction,
 					UUID:          uuid,
 				}
 				continue
@@ -100,7 +102,7 @@ func (e *esRespHandler) ConsumeClaim(
 
 			// Distribute events to their respective channels
 			for _, event := range *events {
-				if event.TimeUUID == (uuuid.UUID{}) {
+				if event.UUID == (uuuid.UUID{}) {
 					continue
 				}
 				eventResp := &EventResponse{
@@ -108,7 +110,7 @@ func (e *esRespHandler) ConsumeClaim(
 					Error: krError,
 				}
 
-				switch event.Action {
+				switch event.EventAction {
 				case "delete":
 					if e.readConfig.EnableDelete {
 						e.eventsIO.delete <- eventResp
@@ -134,7 +136,7 @@ func (e *esRespHandler) ConsumeClaim(
 						e.versionChan <- event.Version
 					}
 				default:
-					log.Printf("Invalid Action found in Event %s", event.TimeUUID)
+					log.Printf("Invalid EventAction found in Event %s", event.UUID)
 					session.MarkMessage(msg, "")
 				}
 			}

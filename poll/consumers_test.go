@@ -201,7 +201,7 @@ var _ = Describe("Consumers", func() {
 
 						log.Println("An Event appeared on insert channel")
 						cidMatch := e.CorrelationID == insertEvent.CorrelationID
-						uuidMatch := e.TimeUUID == insertEvent.TimeUUID
+						uuidMatch := e.UUID == insertEvent.UUID
 						if uuidMatch && cidMatch {
 							log.Println("==> A matching Event appeared on insert channel")
 							insertLock.Lock()
@@ -227,7 +227,7 @@ var _ = Describe("Consumers", func() {
 
 						log.Println("An Event appeared on update channel")
 						cidMatch := e.CorrelationID == updateEvent.CorrelationID
-						uuidMatch := e.TimeUUID == updateEvent.TimeUUID
+						uuidMatch := e.UUID == updateEvent.UUID
 						if uuidMatch && cidMatch {
 							log.Println("==> A matching Event appeared on update channel")
 							updateLock.Lock()
@@ -253,7 +253,7 @@ var _ = Describe("Consumers", func() {
 
 						log.Println("An Event appeared on delete channel")
 						cidMatch := e.CorrelationID == deleteEvent.CorrelationID
-						uuidMatch := e.TimeUUID == deleteEvent.TimeUUID
+						uuidMatch := e.UUID == deleteEvent.UUID
 						if uuidMatch && cidMatch {
 							log.Println("==> A matching Event appeared on delete channel")
 							deleteLock.Lock()
@@ -383,7 +383,7 @@ var _ = Describe("Consumers", func() {
 			kr := &model.KafkaResponse{
 				AggregateID:   event.AggregateID,
 				CorrelationID: event.CorrelationID,
-				UUID:          event.TimeUUID,
+				UUID:          event.UUID,
 			}
 			eventsIO.ProduceResult() <- kr
 			eventsIO.Close()
@@ -396,7 +396,7 @@ var _ = Describe("Consumers", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				cidMatch := kr.CorrelationID == event.CorrelationID
-				uuidMatch := kr.UUID == event.TimeUUID
+				uuidMatch := kr.UUID == event.UUID
 				if uuidMatch && cidMatch {
 					log.Println("The response matches")
 					close(done)
