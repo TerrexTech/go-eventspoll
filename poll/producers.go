@@ -20,7 +20,7 @@ type esQueryReqProdConfig struct {
 	mongoColl       *mongo.Collection
 	kafkaProdConfig *kafka.ProducerConfig
 	kafkaTopic      string
-	eventRespChan   <-chan model.KafkaResponse
+	eventRespChan   <-chan model.Document
 }
 
 // esQueryReqProducer produces the EventStoreQuery requests to get new events.
@@ -63,13 +63,13 @@ func esQueryReqProducer(config *esQueryReqProdConfig) error {
 				return errors.New("ESQueryRequest-Producer: exited")
 			// Replace provided version with MaxVersion from DB and send the query to
 			// EventStoreQuery service.
-			case kr := <-config.eventRespChan:
+			case doc := <-config.eventRespChan:
 				currVersion, err := getVersion(config.aggID, config.mongoColl)
 				if err != nil {
 					err = errors.Wrapf(
 						err,
 						"Error fetching max version for AggregateID %d",
-						kr.AggregateID,
+						doc.AggregateID,
 					)
 					log.Println(err)
 					continue
@@ -77,11 +77,11 @@ func esQueryReqProducer(config *esQueryReqProdConfig) error {
 
 				// Create EventStoreQuery
 				esQuery := model.EventStoreQuery{
-					AggregateID:      kr.AggregateID,
+					AggregateID:      doc.AggregateID,
 					AggregateVersion: currVersion,
-					CorrelationID:    kr.CorrelationID,
+					CorrelationID:    doc.CorrelationID,
 					YearBucket:       2018,
-					UUID:             kr.UUID,
+					UUID:             doc.UUID,
 				}
 				esMsg, err := json.Marshal(esQuery)
 				if err != nil {
@@ -95,74 +95,6 @@ func esQueryReqProducer(config *esQueryReqProdConfig) error {
 					p.Input() <- msg
 				} else {
 					log.Println("Closed producer before producing ESQueryRequest")
-				}
-			}
-		}
-	})
-	return nil
-}
-
-type resultProducerConfig struct {
-	g        *errgroup.Group
-	closeCtx context.Context
-
-	resultChan <-chan *model.KafkaResponse
-	prodConfig *kafka.ProducerConfig
-	prodTopic  string
-}
-
-// resultProducer produces the results for the events processed by this service, to be
-// consumed by other services and proceed as required.
-func resultProducer(config *resultProducerConfig) error {
-	p, err := kafka.NewProducer(config.prodConfig)
-	if err != nil {
-		err = errors.Wrap(err, "Error creating Result-Producer")
-		return err
-	}
-
-	config.g.Go(func() error {
-		var prodErr error
-	errLoop:
-		for {
-			select {
-			case <-config.closeCtx.Done():
-				prodErr = errors.New("Result-Producer: session closed")
-				break errLoop
-			case err := <-p.Errors():
-				if err != nil && err.Err != nil {
-					parsedErr := errors.Wrap(err.Err, "Error in Result-Producer")
-					log.Println(parsedErr)
-					log.Println(err)
-				}
-			}
-		}
-		log.Println("--> Closed Result-Producer error-routine")
-		return prodErr
-	})
-
-	closeProducer := false
-	config.g.Go(func() error {
-		for {
-			select {
-			case <-config.closeCtx.Done():
-				closeProducer = true
-				p.Close()
-				log.Println("--> Closed Result-Producer")
-				return errors.New("Result-Producer exited")
-
-			case kr := <-config.resultChan:
-				krmsg, err := json.Marshal(kr)
-				if err != nil {
-					err = errors.Wrap(err, "Result-Producer: Errors Marshalling KafkaResponse")
-					log.Println(err)
-					continue
-				}
-
-				msg := kafka.CreateMessage(config.prodTopic, krmsg)
-				if !closeProducer {
-					p.Input() <- msg
-				} else {
-					log.Println("Closed producer before producing Result")
 				}
 			}
 		}

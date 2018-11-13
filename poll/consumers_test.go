@@ -2,7 +2,6 @@ package poll
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"os"
 	"strconv"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/Shopify/sarama"
 	"github.com/TerrexTech/go-commonutils/commonutil"
-	"github.com/TerrexTech/go-eventstore-models/model"
 	"github.com/TerrexTech/go-kafkautils/kafka"
 	"github.com/TerrexTech/go-mongoutils/mongo"
 	. "github.com/onsi/ginkgo"
@@ -108,7 +106,6 @@ var _ = Describe("Consumers", func() {
 		cEventTopic := os.Getenv("KAFKA_CONSUMER_EVENT_TOPIC")
 		cESQueryTopic := os.Getenv("KAFKA_CONSUMER_EVENT_QUERY_TOPIC")
 		pESQueryTopic := os.Getenv("KAFKA_PRODUCER_EVENT_QUERY_TOPIC")
-		pResponseTopic := os.Getenv("KAFKA_PRODUCER_RESPONSE_TOPIC")
 
 		kc := KafkaConfig{
 			EventCons: &kafka.ConsumerConfig{
@@ -125,11 +122,7 @@ var _ = Describe("Consumers", func() {
 			ESQueryReqProd: &kafka.ProducerConfig{
 				KafkaBrokers: kafkaBrokers,
 			},
-			SvcResponseProd: &kafka.ProducerConfig{
-				KafkaBrokers: kafkaBrokers,
-			},
-			ESQueryReqTopic:  pESQueryTopic,
-			SvcResponseTopic: pResponseTopic,
+			ESQueryReqTopic: pESQueryTopic,
 		}
 		mc := MongoConfig{
 			AggregateID:        113,
@@ -344,72 +337,6 @@ var _ = Describe("Consumers", func() {
 		Expect(assertOK).To(BeTrue())
 		Expect(meta.AggregateID).To(Equal(int8(113)))
 		Expect(meta.Version).ToNot(Equal(int64(0)))
-	})
-
-	Context("test response-generation", func() {
-		It("should produce the response", func(done Done) {
-			// Init Poll Service
-			kfConfig := ioConfig.KafkaConfig
-			consCfg := &kafka.ConsumerConfig{
-				GroupName:    "poll-test-group",
-				KafkaBrokers: kafkaBrokers,
-				Topics:       []string{kfConfig.SvcResponseTopic},
-			}
-			respConsumer, err := kafka.NewConsumer(consCfg)
-			Expect(err).ToNot(HaveOccurred())
-
-			go func() {
-				for e := range respConsumer.Errors() {
-					Expect(e).ToNot(HaveOccurred())
-				}
-			}()
-
-			ioConfig.ReadConfig.EnableDelete = false
-			ioConfig.ReadConfig.EnableInsert = true
-			ioConfig.ReadConfig.EnableUpdate = false
-			ioConfig.ReadConfig.EnableQuery = false
-
-			eventsIO, err := Init(ioConfig)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Here we again test that we only get responses on channels we have enabled
-			mockEvent(eventProdInput, eventsTopic, "insert")
-			mockEvent(eventProdInput, eventsTopic, "update")
-			mockEvent(eventProdInput, eventsTopic, "delete")
-
-			// Since we only enabled insert
-			eventResp := <-eventsIO.Insert()
-			event := eventResp.Event
-			kr := &model.KafkaResponse{
-				AggregateID:   event.AggregateID,
-				CorrelationID: event.CorrelationID,
-				UUID:          event.UUID,
-			}
-			eventsIO.ProduceResult() <- kr
-			eventsIO.Close()
-			<-eventsIO.Wait()
-
-			msgCallback := func(msg *sarama.ConsumerMessage) bool {
-				log.Println("A Response was received on response channel")
-				kr := &model.KafkaResponse{}
-				err := json.Unmarshal(msg.Value, kr)
-				Expect(err).ToNot(HaveOccurred())
-
-				cidMatch := kr.CorrelationID == event.CorrelationID
-				uuidMatch := kr.UUID == event.UUID
-				if uuidMatch && cidMatch {
-					log.Println("The response matches")
-					close(done)
-					return true
-				}
-				return false
-			}
-
-			handler := &msgHandler{msgCallback}
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-			respConsumer.Consume(ctx, handler)
-		}, 15)
 	})
 
 	It("should execute cancel-context when the service is closed", func(done Done) {

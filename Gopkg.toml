@@ -38,7 +38,7 @@
 
 [[constraint]]
   name = "github.com/TerrexTech/go-eventstore-models"
-  version = "4.0.0"
+  version = "5.0.0"
 
 [[constraint]]
   name = "github.com/TerrexTech/go-kafkautils"

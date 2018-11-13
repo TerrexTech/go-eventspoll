@@ -6,7 +6,6 @@ import (
 	"github.com/TerrexTech/go-kafkautils/kafka"
 
 	"github.com/TerrexTech/go-eventspoll/poll"
-	"github.com/TerrexTech/go-eventstore-models/model"
 
 	"github.com/TerrexTech/go-mongoutils/mongo"
 	"github.com/mongodb/mongo-go-driver/bson/objectid"
@@ -103,11 +102,7 @@ func main() {
 		ESQueryReqProd: &kafka.ProducerConfig{
 			KafkaBrokers: kafkaBrokers,
 		},
-		SvcResponseProd: &kafka.ProducerConfig{
-			KafkaBrokers: kafkaBrokers,
-		},
-		ESQueryReqTopic:  "events.rns_eventstore.esquery",
-		SvcResponseTopic: "resp",
+		ESQueryReqTopic: "events.rns_eventstore.esquery",
 	}
 	mc := poll.MongoConfig{
 		AggregateID:        2,
@@ -144,57 +139,37 @@ func main() {
 
 		// Handle Insert events
 		case eventResp := <-eventPoll.Insert():
-			kafkaResp := handleInsert(eventResp)
-			eventPoll.ProduceResult() <- kafkaResp
+			handleInsert(eventResp)
 
 		// Handle Update events
 		case eventResp := <-eventPoll.Update():
-			kafkaResp := handleUpdate(eventResp)
-			eventPoll.ProduceResult() <- kafkaResp
+			handleUpdate(eventResp)
 		}
 	}
 }
 
-func handleInsert(eventResp *poll.EventResponse) *model.KafkaResponse {
+func handleInsert(eventResp *poll.EventResponse) {
 	err := eventResp.Error
 	if err != nil {
 		err = errors.Wrap(err, "Some error occurred")
-		log.Println(err)
 		// Would ideally do proper error handling as required
-		return nil
+		log.Println(err)
 	}
 
 	event := eventResp.Event
 	// Do something with Event/Event-Data
 	log.Printf("%+v", event)
-
-	// The response/result from this service, to be used by other services requesting it.
-	kr := &model.KafkaResponse{
-		AggregateID:   event.AggregateID,
-		CorrelationID: event.CorrelationID,
-		Result:        []byte("some_data-result-of-processing-this-event"),
-	}
-	return kr
 }
 
-func handleUpdate(eventResp *poll.EventResponse) *model.KafkaResponse {
+func handleUpdate(eventResp *poll.EventResponse) {
 	err := eventResp.Error
 	if err != nil {
 		err = errors.Wrap(err, "Some error occurred")
-		log.Println(err)
 		// Would ideally do proper error handling as required
-		return nil
+		log.Println(err)
 	}
 
 	event := eventResp.Event
 	// Do something with Event/Event-Data
 	log.Printf("%+v", event)
-
-	// The response/result from this service, to be used by other services requesting it.
-	kr := &model.KafkaResponse{
-		AggregateID:   event.AggregateID,
-		CorrelationID: event.CorrelationID,
-		Result:        []byte("some_data-result-of-processing-this-event"),
-	}
-	return kr
 }

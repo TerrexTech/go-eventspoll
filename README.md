@@ -1,7 +1,7 @@
 EventsPoll
 ---
 
-This library distributes new events to specific channels as per their `Action` type, in a fan-out approach.
+This library distributes new events to specific channels as per their `EventAction` type, in a fan-out approach.
 
 How it works:
 
@@ -10,8 +10,7 @@ How it works:
 * Get the Max Aggregate-Version from Database.
 * Send request to [EventStoreQuery][0] with the Max Aggregate-Version.
 * Get events from EventStoreQuery.
-* Fan-Out events to their respective channels based on `Event.Action`.
-* Send service-response to specified Kafka-topic.
+* Fan-Out events to their respective channels based on `Event.EventAction`.
 
 ---
 

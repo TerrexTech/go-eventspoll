@@ -11,7 +11,7 @@ import (
 
 // eventHandler handler for Consumer Messages
 type eventHandler struct {
-	eventRespChan chan<- model.KafkaResponse
+	eventRespChan chan<- model.Document
 }
 
 func (*eventHandler) Setup(sarama.ConsumerGroupSession) error {
@@ -35,8 +35,8 @@ func (e *eventHandler) ConsumeClaim(
 		case <-session.Context().Done():
 			return errors.New("Event-Consumer: session closed")
 		case msg := <-claim.Messages():
-			kr := model.KafkaResponse{}
-			err := json.Unmarshal(msg.Value, &kr)
+			doc := model.Document{}
+			err := json.Unmarshal(msg.Value, &doc)
 			if err != nil {
 				err = errors.Wrap(err, "Error: unable to Unmarshal Event")
 				log.Println(err)
@@ -44,9 +44,9 @@ func (e *eventHandler) ConsumeClaim(
 				continue
 			}
 
-			log.Printf("Received EventResponse with ID: %s", kr.UUID)
+			log.Printf("Received EventResponse with ID: %s", doc.UUID)
 
-			e.eventRespChan <- kr
+			e.eventRespChan <- doc
 			session.MarkMessage(msg, "")
 		}
 	}

@@ -12,13 +12,11 @@ var _ = Describe("InitTest", func() {
 
 	BeforeEach(func() {
 		kc := KafkaConfig{
-			ESQueryResCons:  &kafka.ConsumerConfig{},
-			EventCons:       &kafka.ConsumerConfig{},
-			ESQueryReqProd:  &kafka.ProducerConfig{},
-			SvcResponseProd: &kafka.ProducerConfig{},
+			ESQueryResCons: &kafka.ConsumerConfig{},
+			EventCons:      &kafka.ConsumerConfig{},
+			ESQueryReqProd: &kafka.ProducerConfig{},
 
-			ESQueryReqTopic:  "testpeqt",
-			SvcResponseTopic: "testrt",
+			ESQueryReqTopic: "testpeqt",
 		}
 		mc := MongoConfig{
 			AggCollection:      &mongo.Collection{},
@@ -115,15 +113,6 @@ var _ = Describe("InitTest", func() {
 			kfConfig := ioConfig.KafkaConfig
 
 			kfConfig.ESQueryReqTopic = ""
-			eventsIO, err := Init(ioConfig)
-			Expect(err).To(HaveOccurred())
-			Expect(eventsIO).To(BeNil())
-		})
-
-		It("should return error if SvcResponseTopic is not specified", func() {
-			kfConfig := ioConfig.KafkaConfig
-
-			kfConfig.SvcResponseTopic = ""
 			eventsIO, err := Init(ioConfig)
 			Expect(err).To(HaveOccurred())
 			Expect(eventsIO).To(BeNil())
