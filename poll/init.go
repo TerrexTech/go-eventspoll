@@ -30,14 +30,8 @@ type KafkaConfig struct {
 
 	// Producer for making requests to ESQuery
 	ESQueryReqProd *kafka.ProducerConfig
-	// Service-response Producer
-	SvcResponseProd *kafka.ProducerConfig
-
 	// Topic on which requests to EventStoreQuery should be sent.
 	ESQueryReqTopic string
-	// Topic on which the service should produce its response/results,
-	// for use by other services.
-	SvcResponseTopic string
 }
 
 // MongoConfig is the configuration for MongoDB client.
@@ -102,19 +96,9 @@ func validateConfig(config IOConfig) error {
 			"KafkaConfig: ESQueryReqProd is required, but none was specified",
 		)
 	}
-	if kc.SvcResponseProd == nil {
-		return errors.New(
-			"KafkaConfig: SvcResponseProd is required, but none was specified",
-		)
-	}
 	if kc.ESQueryReqTopic == "" {
 		return errors.New(
 			"KafkaConfig: ESQueryReqTopic is required, but none was specified",
-		)
-	}
-	if kc.SvcResponseTopic == "" {
-		return errors.New(
-			"KafkaConfig: SvcResponseTopic is required, but none was specified",
 		)
 	}
 
@@ -141,15 +125,13 @@ func Init(config IOConfig) (*EventsIO, error) {
 		return nil, err
 	}
 
-	krChan := make(chan *model.KafkaResponse)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	g, ctx := errgroup.WithContext(ctx)
 
 	// closeChan will close all components of EventsPoll when anything is sent to it.
 	closeChan := make(chan struct{})
 
-	eventsIO := newEventsIO(ctx, g, closeChan, krChan)
+	eventsIO := newEventsIO(ctx, g, closeChan)
 	g.Go(func() error {
 		<-closeChan
 		eventsIO.ctxLock.Lock()
@@ -157,7 +139,6 @@ func Init(config IOConfig) (*EventsIO, error) {
 		eventsIO.ctxLock.Unlock()
 
 		log.Println("Received Close signal")
-		close(krChan)
 		log.Println("Signalling routines to close")
 		cancel()
 		close(closeChan)
@@ -186,7 +167,7 @@ func Init(config IOConfig) (*EventsIO, error) {
 
 	// ESQueryRequest-Producer
 	log.Println("Initializing ESQueryRequest-Producer")
-	eventRespChan := make(chan model.KafkaResponse)
+	eventRespChan := make(chan model.Document)
 	err = esQueryReqProducer(&esQueryReqProdConfig{
 		g:        g,
 		closeCtx: ctx,
@@ -194,7 +175,7 @@ func Init(config IOConfig) (*EventsIO, error) {
 		aggID:           mgConfig.AggregateID,
 		kafkaProdConfig: kfConfig.ESQueryReqProd,
 		kafkaTopic:      kfConfig.ESQueryReqTopic,
-		eventRespChan:   (<-chan model.KafkaResponse)(eventRespChan),
+		eventRespChan:   (<-chan model.Document)(eventRespChan),
 		mongoColl:       metaCollection,
 	})
 	if err != nil {
@@ -230,20 +211,6 @@ func Init(config IOConfig) (*EventsIO, error) {
 		return consErr
 	})
 
-	// Result Producer
-	log.Println("Initializing Result-Producer")
-	err = resultProducer(&resultProducerConfig{
-		g:          g,
-		closeCtx:   ctx,
-		resultChan: (<-chan *model.KafkaResponse)(krChan),
-		prodConfig: kfConfig.SvcResponseProd,
-		prodTopic:  kfConfig.SvcResponseTopic,
-	})
-	if err != nil {
-		closeChan <- struct{}{}
-		return nil, err
-	}
-
 	// Event-Consumer
 	log.Println("Initializing Event-Consumer")
 	eventConsumer, err := kafka.NewConsumer(kfConfig.EventCons)
@@ -277,7 +244,7 @@ func Init(config IOConfig) (*EventsIO, error) {
 	// Event-Consumer Messages
 	g.Go(func() error {
 		handler := &eventHandler{
-			eventRespChan: (chan<- model.KafkaResponse)(eventRespChan),
+			eventRespChan: (chan<- model.Document)(eventRespChan),
 		}
 		err := eventConsumer.Consume(ctx, handler)
 		if err != nil {
@@ -307,20 +274,10 @@ func Init(config IOConfig) (*EventsIO, error) {
 	// Drain svcResponse-channel
 	g.Go(func() error {
 		<-ctx.Done()
-		for kr := range eventRespChan {
-			log.Printf("EventResponse: Drained response with ID: %s", kr.UUID)
+		for doc := range eventRespChan {
+			log.Printf("EventResponse: Drained response with ID: %s", doc.UUID)
 		}
 		log.Println("--> Closed EventResponse drain-routine")
-		return nil
-	})
-
-	// Drain ResultProducer-channel
-	g.Go(func() error {
-		<-ctx.Done()
-		for kr := range krChan {
-			log.Printf("svcResult: Drained result with ID: %s", kr.UUID)
-		}
-		log.Println("--> Closed svcResult drain-routine")
 		return nil
 	})
 

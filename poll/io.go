@@ -5,8 +5,6 @@ import (
 	"sync"
 
 	"golang.org/x/sync/errgroup"
-
-	"github.com/TerrexTech/go-eventstore-models/model"
 )
 
 // EventsIO allows interacting with the EventsPoll service.
@@ -19,19 +17,17 @@ type EventsIO struct {
 	ctxOpen bool
 	ctxLock sync.RWMutex
 
-	delete      chan *EventResponse
-	insert      chan *EventResponse
-	query       chan *EventResponse
-	update      chan *EventResponse
-	resultInput chan<- *model.KafkaResponse
-	waitChan    chan error
+	delete   chan *EventResponse
+	insert   chan *EventResponse
+	query    chan *EventResponse
+	update   chan *EventResponse
+	waitChan chan error
 }
 
 func newEventsIO(
 	errGroupCtx context.Context,
 	errGroup *errgroup.Group,
 	closeChan chan<- struct{},
-	resultInput chan<- *model.KafkaResponse,
 ) *EventsIO {
 	return &EventsIO{
 		closeChan:   closeChan,
@@ -41,11 +37,10 @@ func newEventsIO(
 		ctxOpen: true,
 		ctxLock: sync.RWMutex{},
 
-		delete:      make(chan *EventResponse, 256),
-		insert:      make(chan *EventResponse, 256),
-		query:       make(chan *EventResponse, 256),
-		update:      make(chan *EventResponse, 256),
-		resultInput: resultInput,
+		delete: make(chan *EventResponse, 256),
+		insert: make(chan *EventResponse, 256),
+		query:  make(chan *EventResponse, 256),
+		update: make(chan *EventResponse, 256),
 	}
 }
 
@@ -105,10 +100,4 @@ func (e *EventsIO) Query() <-chan *EventResponse {
 // Update is the channel for "update" events.
 func (e *EventsIO) Update() <-chan *EventResponse {
 	return (<-chan *EventResponse)(e.update)
-}
-
-// ProduceResult can be used to produce the resulting Kafka-Message after/while processing
-// events from EventsPoll service.
-func (e *EventsIO) ProduceResult() chan<- *model.KafkaResponse {
-	return (chan<- *model.KafkaResponse)(e.resultInput)
 }

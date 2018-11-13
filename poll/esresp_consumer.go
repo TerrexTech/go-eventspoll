@@ -6,7 +6,6 @@ import (
 	"log"
 
 	"github.com/Shopify/sarama"
-	ec "github.com/TerrexTech/go-eventspoll/errors"
 	"github.com/TerrexTech/go-eventstore-models/model"
 	"github.com/TerrexTech/go-mongoutils/mongo"
 	"github.com/TerrexTech/uuuid"
@@ -59,44 +58,29 @@ func (e *esRespHandler) ConsumeClaim(
 			return errors.New("ESQueryResponse-Consumer: session closed")
 
 		case msg := <-claim.Messages():
-			kr := &model.KafkaResponse{}
-			err := json.Unmarshal(msg.Value, kr)
+			doc := &model.Document{}
+			err := json.Unmarshal(msg.Value, doc)
 			if err != nil {
-				err = errors.Wrap(err, "Error Unmarshalling ESQueryResponse into KafkaResponse")
+				err = errors.Wrap(err, "Error Unmarshalling ESQueryResponse into Document")
 				log.Println(err)
 				continue
 			}
-			log.Printf("Received ESQueryResponse with ID: %s", kr.UUID)
+			log.Printf("Received ESQueryResponse with ID: %s", doc.UUID)
 
-			var krError error
-			if kr.Error != "" {
-				krError = fmt.Errorf("Error %d: %s", kr.ErrorCode, kr.Error)
+			var docError error
+			if doc.Error != "" {
+				docError = fmt.Errorf("Error %d: %s", doc.ErrorCode, doc.Error)
 			}
 
-			// Get all events from KafkaResponse
+			// Get all events from Document
 			events := &[]model.Event{}
-			err = json.Unmarshal(kr.Result, events)
+			err = json.Unmarshal(doc.Result, events)
 			if err != nil {
 				err = errors.Wrap(
 					err,
-					"ESQueryResponse-Consumer: Error Unmarshalling KafkaResult into Events",
+					"ESQueryResponse-Consumer: Error Unmarshalling Document-response into Events",
 				)
 				log.Println(err)
-
-				uuid, uerr := uuuid.NewV4()
-				if uerr != nil {
-					uerr = errors.Wrap(uerr, "Error getting UUID for KafkaResponse")
-					uuid = uuuid.UUID{}
-				}
-				e.eventsIO.ProduceResult() <- &model.KafkaResponse{
-					AggregateID:   kr.AggregateID,
-					CorrelationID: kr.CorrelationID,
-					EventAction:   kr.EventAction,
-					Error:         err.Error(),
-					ErrorCode:     ec.InternalError,
-					ServiceAction: kr.ServiceAction,
-					UUID:          uuid,
-				}
 				continue
 			}
 
@@ -107,7 +91,7 @@ func (e *esRespHandler) ConsumeClaim(
 				}
 				eventResp := &EventResponse{
 					Event: event,
-					Error: krError,
+					Error: docError,
 				}
 
 				switch event.EventAction {
