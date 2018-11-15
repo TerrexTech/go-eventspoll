@@ -12,6 +12,7 @@ import (
 // eventHandler handler for Consumer Messages
 type eventHandler struct {
 	eventRespChan chan<- model.Document
+	readConfig    *ReadConfig
 }
 
 func (*eventHandler) Setup(sarama.ConsumerGroupSession) error {
@@ -42,6 +43,27 @@ func (e *eventHandler) ConsumeClaim(
 				log.Println(err)
 				session.MarkMessage(msg, "")
 				continue
+			}
+			// Ignore disabled events, might change later if better
+			// overall application-architecture is implemented.
+			rc := e.readConfig
+			switch doc.EventAction {
+			case "delete":
+				if !rc.EnableDelete {
+					continue
+				}
+			case "insert":
+				if !rc.EnableInsert {
+					continue
+				}
+			case "query":
+				if !rc.EnableQuery {
+					continue
+				}
+			case "update":
+				if !rc.EnableUpdate {
+					continue
+				}
 			}
 
 			log.Printf("Received EventResponse with ID: %s", doc.UUID)

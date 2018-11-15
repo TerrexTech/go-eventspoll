@@ -58,6 +58,9 @@ func (e *esRespHandler) ConsumeClaim(
 			return errors.New("ESQueryResponse-Consumer: session closed")
 
 		case msg := <-claim.Messages():
+			if msg == nil {
+				continue
+			}
 			doc := &model.Document{}
 			err := json.Unmarshal(msg.Value, doc)
 			if err != nil {
