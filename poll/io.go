@@ -49,8 +49,8 @@ func (e *EventsIO) RoutinesGroup() *errgroup.Group {
 	return e.errGroup
 }
 
-// RoutinesCtx returns the errgroup-context used for EventsPoll-routines.
-func (e *EventsIO) RoutinesCtx() context.Context {
+// Context returns the errgroup-context used for EventsPoll-routines.
+func (e *EventsIO) Context() context.Context {
 	return e.errGroupCtx
 }
 
