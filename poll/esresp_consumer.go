@@ -6,7 +6,7 @@ import (
 	"log"
 
 	"github.com/Shopify/sarama"
-	"github.com/TerrexTech/go-eventstore-models/model"
+	"github.com/TerrexTech/go-common-models/model"
 	"github.com/TerrexTech/go-mongoutils/mongo"
 	"github.com/TerrexTech/uuuid"
 	"github.com/pkg/errors"
@@ -22,7 +22,6 @@ type EventResponse struct {
 type esRespHandler struct {
 	aggID          int8
 	eventsIO       *EventsIO
-	readConfig     ReadConfig
 	metaCollection *mongo.Collection
 
 	versionChan chan int64
@@ -38,10 +37,7 @@ func (e *esRespHandler) Setup(sarama.ConsumerGroupSession) error {
 func (e *esRespHandler) Cleanup(sarama.ConsumerGroupSession) error {
 	log.Println("Closing ESQueryRespConsumer")
 
-	close(e.eventsIO.delete)
-	close(e.eventsIO.insert)
-	close(e.eventsIO.query)
-	close(e.eventsIO.update)
+	close(e.eventsIO.eventResp)
 	close(e.versionChan)
 
 	return errors.New("ESQueryResponse-Consumer unexpectedly closed")
@@ -77,7 +73,7 @@ func (e *esRespHandler) ConsumeClaim(
 
 			// Get all events from Document
 			events := &[]model.Event{}
-			err = json.Unmarshal(doc.Result, events)
+			err = json.Unmarshal(doc.Data, events)
 			if err != nil {
 				err = errors.Wrap(
 					err,
@@ -97,35 +93,9 @@ func (e *esRespHandler) ConsumeClaim(
 					Error: docError,
 				}
 
-				switch event.EventAction {
-				case "delete":
-					if e.readConfig.EnableDelete {
-						e.eventsIO.delete <- eventResp
-						session.MarkMessage(msg, "")
-						e.versionChan <- event.Version
-					}
-				case "insert":
-					if e.readConfig.EnableInsert {
-						e.eventsIO.insert <- eventResp
-						session.MarkMessage(msg, "")
-						e.versionChan <- event.Version
-					}
-				case "query":
-					if e.readConfig.EnableQuery {
-						session.MarkMessage(msg, "")
-						e.eventsIO.query <- eventResp
-						e.versionChan <- event.Version
-					}
-				case "update":
-					if e.readConfig.EnableUpdate {
-						e.eventsIO.update <- eventResp
-						session.MarkMessage(msg, "")
-						e.versionChan <- event.Version
-					}
-				default:
-					log.Printf("Invalid EventAction found in Event %s", event.UUID)
-					session.MarkMessage(msg, "")
-				}
+				e.eventsIO.eventResp <- eventResp
+				session.MarkMessage(msg, "")
+				e.versionChan <- event.Version
 			}
 		}
 	}

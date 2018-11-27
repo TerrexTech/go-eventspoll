@@ -17,11 +17,8 @@ type EventsIO struct {
 	ctxOpen bool
 	ctxLock sync.RWMutex
 
-	delete   chan *EventResponse
-	insert   chan *EventResponse
-	query    chan *EventResponse
-	update   chan *EventResponse
-	waitChan chan error
+	eventResp chan *EventResponse
+	waitChan  chan error
 }
 
 func newEventsIO(
@@ -37,10 +34,7 @@ func newEventsIO(
 		ctxOpen: true,
 		ctxLock: sync.RWMutex{},
 
-		delete: make(chan *EventResponse, 256),
-		insert: make(chan *EventResponse, 256),
-		query:  make(chan *EventResponse, 256),
-		update: make(chan *EventResponse, 256),
+		eventResp: make(chan *EventResponse, 256),
 	}
 }
 
@@ -82,22 +76,7 @@ func (e *EventsIO) Close() {
 	e.ctxLock.Unlock()
 }
 
-// Delete is the channel for "delete" events.
-func (e *EventsIO) Delete() <-chan *EventResponse {
-	return (<-chan *EventResponse)(e.delete)
-}
-
-// Insert is the channel for "insert" events.
-func (e *EventsIO) Insert() <-chan *EventResponse {
-	return (<-chan *EventResponse)(e.insert)
-}
-
-// Query is the channel for "query" events.
-func (e *EventsIO) Query() <-chan *EventResponse {
-	return (<-chan *EventResponse)(e.query)
-}
-
-// Update is the channel for "update" events.
-func (e *EventsIO) Update() <-chan *EventResponse {
-	return (<-chan *EventResponse)(e.update)
+// Events channel. New events from EventStoreQuery are received here.
+func (e *EventsIO) Events() <-chan *EventResponse {
+	return (<-chan *EventResponse)(e.eventResp)
 }
