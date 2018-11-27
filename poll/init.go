@@ -4,7 +4,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/TerrexTech/go-eventstore-models/model"
+	"github.com/TerrexTech/go-common-models/model"
 	"github.com/TerrexTech/go-kafkautils/kafka"
 	"github.com/TerrexTech/go-mongoutils/mongo"
 	"github.com/pkg/errors"
@@ -48,7 +48,6 @@ type MongoConfig struct {
 type IOConfig struct {
 	KafkaConfig KafkaConfig
 	MongoConfig MongoConfig
-	ReadConfig  ReadConfig
 }
 
 // validateConfig validates the input config.
@@ -59,7 +58,7 @@ func validateConfig(config IOConfig) error {
 			"MongoConfig: AggregateID >0 is required, but none/invalid was specified",
 		)
 	}
-	if mc.AggCollection == nil {
+	if mc.AggCollection == nil || mc.AggCollection.Connection == nil {
 		return errors.New(
 			"MongoConfig: AggCollection is required, but none was specified",
 		)
@@ -99,16 +98,6 @@ func validateConfig(config IOConfig) error {
 	if kc.ESQueryReqTopic == "" {
 		return errors.New(
 			"KafkaConfig: ESQueryReqTopic is required, but none was specified",
-		)
-	}
-
-	rc := config.ReadConfig
-	if !rc.EnableDelete &&
-		!rc.EnableInsert &&
-		!rc.EnableQuery &&
-		!rc.EnableUpdate {
-		return errors.New(
-			"ReadConfig: Atleast one of the channels must be open/true",
 		)
 	}
 
@@ -175,8 +164,10 @@ func Init(config IOConfig) (*EventsIO, error) {
 		aggID:           mgConfig.AggregateID,
 		kafkaProdConfig: kfConfig.ESQueryReqProd,
 		kafkaTopic:      kfConfig.ESQueryReqTopic,
-		eventRespChan:   (<-chan model.Document)(eventRespChan),
 		mongoColl:       metaCollection,
+
+		eventRespTopic: kfConfig.ESQueryResCons.Topics[0],
+		eventRespChan:  (<-chan model.Document)(eventRespChan),
 	})
 	if err != nil {
 		closeChan <- struct{}{}
@@ -259,7 +250,6 @@ func Init(config IOConfig) (*EventsIO, error) {
 		handler := &esRespHandler{
 			aggID:          config.MongoConfig.AggregateID,
 			eventsIO:       eventsIO,
-			readConfig:     config.ReadConfig,
 			metaCollection: metaCollection,
 			versionChan:    make(chan int64, 128),
 		}
@@ -281,49 +271,15 @@ func Init(config IOConfig) (*EventsIO, error) {
 		return nil
 	})
 
-	// Drain io-channels
-	rc := config.ReadConfig
-	if rc.EnableDelete {
-		g.Go(func() error {
-			<-ctx.Done()
-			for e := range eventsIO.delete {
-				log.Printf("Delete: Drained event with ID: %s", e.Event.UUID)
-			}
-			log.Println("--> Closed Delete drain-routine")
-			return nil
-		})
-	}
-	if rc.EnableInsert {
-		g.Go(func() error {
-			<-ctx.Done()
-			for e := range eventsIO.insert {
-				log.Printf("Insert: Drained event with ID: %s", e.Event.UUID)
-			}
-			log.Println("--> Closed Insert drain-routine")
-			return nil
-		})
-	}
-	if rc.EnableQuery {
-		g.Go(func() error {
-			<-ctx.Done()
-			for e := range eventsIO.query {
-				log.Printf("Query: Drained event with ID: %s", e.Event.UUID)
-			}
-			log.Println("--> Closed Query drain-routine")
-			return nil
-		})
-	}
-	if rc.EnableUpdate {
-		g.Go(func() error {
-			<-ctx.Done()
-			for e := range eventsIO.update {
-				log.Printf("Update: Drained event with ID: %s", e.Event.UUID)
-			}
-			log.Println("--> Closed Update drain-routine")
-			return nil
-		})
-	}
-
+	// Drain even-channel
+	g.Go(func() error {
+		<-ctx.Done()
+		for e := range eventsIO.eventResp {
+			log.Printf("EventResp: Drained event with ID: %s", e.Event.UUID)
+		}
+		log.Println("--> Closed EventResp drain-routine")
+		return nil
+	})
 	log.Println("Events-Poll Service Initialized")
 	return eventsIO, nil
 }

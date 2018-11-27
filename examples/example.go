@@ -112,12 +112,6 @@ func main() {
 		MetaCollectionName: "aggregate_meta",
 	}
 	ioConfig := poll.IOConfig{
-		// Choose what type of events we need process
-		// Remember, adding a type here and not processing/listening to it will cause deadlocks!
-		ReadConfig: poll.ReadConfig{
-			EnableInsert: true,
-			EnableUpdate: true,
-		},
 		KafkaConfig: kc,
 		MongoConfig: mc,
 	}
@@ -138,30 +132,13 @@ func main() {
 			log.Fatalln(err)
 
 		// Handle Insert events
-		case eventResp := <-eventPoll.Insert():
-			handleInsert(eventResp)
-
-		// Handle Update events
-		case eventResp := <-eventPoll.Update():
-			handleUpdate(eventResp)
+		case eventResp := <-eventPoll.Events():
+			handleEvent(eventResp)
 		}
 	}
 }
 
-func handleInsert(eventResp *poll.EventResponse) {
-	err := eventResp.Error
-	if err != nil {
-		err = errors.Wrap(err, "Some error occurred")
-		// Would ideally do proper error handling as required
-		log.Println(err)
-	}
-
-	event := eventResp.Event
-	// Do something with Event/Event-Data
-	log.Printf("%+v", event)
-}
-
-func handleUpdate(eventResp *poll.EventResponse) {
+func handleEvent(eventResp *poll.EventResponse) {
 	err := eventResp.Error
 	if err != nil {
 		err = errors.Wrap(err, "Some error occurred")

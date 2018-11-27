@@ -25,6 +25,22 @@ func createMetaCollection(
 	db string,
 	coll string,
 ) (*mongo.Collection, error) {
+	if aggID == 0 {
+		return nil, errors.New("aggID cannot be 0")
+	}
+	if conn == nil {
+		return nil, errors.New("conn cannot be nil")
+	}
+	if conn.Client == nil {
+		return nil, errors.New("conn: client cannot be nil")
+	}
+	if db == "" {
+		return nil, errors.New("db cannot be blank")
+	}
+	if coll == "" {
+		return nil, errors.New("coll cannot be blank")
+	}
+
 	// Index Configuration
 	indexConfigs := []mongo.IndexConfig{
 		mongo.IndexConfig{

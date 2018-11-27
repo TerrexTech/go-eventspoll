@@ -5,7 +5,7 @@ import (
 	"log"
 
 	"github.com/Shopify/sarama"
-	"github.com/TerrexTech/go-eventstore-models/model"
+	"github.com/TerrexTech/go-common-models/model"
 	"github.com/pkg/errors"
 )
 
@@ -43,27 +43,6 @@ func (e *eventHandler) ConsumeClaim(
 				log.Println(err)
 				session.MarkMessage(msg, "")
 				continue
-			}
-			// Ignore disabled events, might change later if better
-			// overall application-architecture is implemented.
-			rc := e.readConfig
-			switch doc.EventAction {
-			case "delete":
-				if !rc.EnableDelete {
-					continue
-				}
-			case "insert":
-				if !rc.EnableInsert {
-					continue
-				}
-			case "query":
-				if !rc.EnableQuery {
-					continue
-				}
-			case "update":
-				if !rc.EnableUpdate {
-					continue
-				}
 			}
 
 			log.Printf("Received EventResponse with ID: %s", doc.UUID)

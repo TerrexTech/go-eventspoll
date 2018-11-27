@@ -10,20 +10,20 @@
   version = "v1.19.0"
 
 [[projects]]
+  digest = "1:cfc553aea6ed5498df3c05f139ad0a0c7345bfaf595902d6c02fe5fc72f5aeb6"
+  name = "github.com/TerrexTech/go-common-models"
+  packages = ["model"]
+  pruneopts = "UT"
+  revision = "4fb8fe6f5ae0bf1006f9b268de7a26ed7e0f65d9"
+  version = "v2.0.0"
+
+[[projects]]
   digest = "1:9e040726ee775fa241bf96d3c11533a5312d9bcb00a594b63679bff456a4522c"
   name = "github.com/TerrexTech/go-commonutils"
   packages = ["commonutil"]
   pruneopts = "UT"
   revision = "3d09c974f936d001def7acafb178d99f317ee3a9"
   version = "v3.1.0"
-
-[[projects]]
-  digest = "1:d5b85fd27be07e0eb6b9ad4119c28f3688d4411fdde9e515ffdbc47edb8bf4d7"
-  name = "github.com/TerrexTech/go-eventstore-models"
-  packages = ["model"]
-  pruneopts = "UT"
-  revision = "e54901c922e3963f6a73424e5303be2499c18785"
-  version = "v5.0.0"
 
 [[projects]]
   digest = "1:017b08c994a864ea4e94f1837037c14087f784a1e99d54173eba9050f7a81f74"
@@ -51,11 +51,11 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:8500725e4a8fd006069df505505e0c370466b0952db1174235d7935e34e6df0b"
+  digest = "1:69e7139f6d546cc6ffc9ca98e7f4cfe95be479f4044eb30bb92017b5b87c9d40"
   name = "github.com/buger/jsonparser"
   packages = ["."]
   pruneopts = "UT"
-  revision = "52c6e1462ebdfb4f59765ca13bd8fa1c31b1d7eb"
+  revision = "bf1c66bbce23153d89b23f8960071a680dbef54b"
 
 [[projects]]
   digest = "1:ffe9824d294da03b391f44e1ae8281281b4afc1bdaa9588c9097785e3af10cec"
@@ -99,7 +99,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:7173cfc9eec4c3f4b1f9260e60cd2f73a8f9b49739d00647f71a1eb14c498939"
+  digest = "1:1a5f28249f1a5b118994359a1c7b8c53ee1ff47aa7fe65884fbd20cd237001f4"
   name = "github.com/gocql/gocql"
   packages = [
     ".",
@@ -108,7 +108,7 @@
     "internal/streams",
   ]
   pruneopts = "UT"
-  revision = "9de8c0414fd7ff72ee819f25a66e4942cb223873"
+  revision = "70385f88b28b43805bd83d212169ab2d38810b15"
 
 [[projects]]
   digest = "1:c594a691090b434d55c67f6cc8e326ef5ba49452abc059821bd5d4fd4cdef08c"
@@ -217,7 +217,7 @@
   version = "v0.0.14"
 
 [[projects]]
-  digest = "1:42e29deef12327a69123b9cb2cb45fee4af5c12c2a23c6e477338279a052703f"
+  digest = "1:5f4b78246f0bcb105b1e3b2b9e22b52a57cd02f57a8078572fe27c62f4a75ff7"
   name = "github.com/onsi/ginkgo"
   packages = [
     ".",
@@ -240,11 +240,11 @@
     "types",
   ]
   pruneopts = "UT"
-  revision = "3774a09d95489ccaa16032e0770d08ea77ba6184"
-  version = "v1.6.0"
+  revision = "2e1be8f7d90e9d3e3e58b0ce470f2f14d075406f"
+  version = "v1.7.0"
 
 [[projects]]
-  digest = "1:ab54eea8d482272009e9e4af07d4d9b5236c27b4d8c54a3f2c99d163be883eca"
+  digest = "1:7a137fb7718928e473b7d805434ae563ec41790d3d227cdc64e8b14d1cab8a1f"
   name = "github.com/onsi/gomega"
   packages = [
     ".",
@@ -261,8 +261,8 @@
     "types",
   ]
   pruneopts = "UT"
-  revision = "7615b9433f86a8bdf29709bf288bc4fd0636a369"
-  version = "v1.4.2"
+  revision = "65fb64232476ad9046e57c26cd0bff3d3a8dc6cd"
+  version = "v1.4.3"
 
 [[projects]]
   digest = "1:e39a5ee8fcbec487f8fc68863ef95f2b025e0739b0e4aa55558a2b4cf8f0ecf0"
@@ -313,7 +313,7 @@
   name = "golang.org/x/crypto"
   packages = ["pbkdf2"]
   pruneopts = "UT"
-  revision = "3d3f9f413869b949e48070b5bc593aa22cc2b8f2"
+  revision = "e657309f52e71501f9934566ac06dc5c2f7f11a1"
 
 [[projects]]
   branch = "master"
@@ -325,7 +325,7 @@
     "html/charset",
   ]
   pruneopts = "UT"
-  revision = "03003ca0c849e57b6ea29a4bab8d3cb6e4d568fe"
+  revision = "adae6a3d119ae4890b46832a2e88a95adc62b8e7"
 
 [[projects]]
   branch = "master"
@@ -340,11 +340,11 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:7ba061af4131fb44b30448572acd0d6fefbf63a61b97b7ef1dea0be5871c2742"
+  digest = "1:225564f71149334315118db714e1ea87513e4a11cf4acb27e26bc7577cebfa0b"
   name = "golang.org/x/sys"
   packages = ["unix"]
   pruneopts = "UT"
-  revision = "66b7b1311ac80bbafcd2daeef9a5e6e2cd1e2399"
+  revision = "62eef0e2fa9b2c385f7b2778e763486da6880d37"
 
 [[projects]]
   digest = "1:4392fcf42d5cf0e3ff78c96b2acf8223d49e4fdc53eb77c99d2f8dfe4680e006"
@@ -413,8 +413,8 @@
   analyzer-version = 1
   input-imports = [
     "github.com/Shopify/sarama",
+    "github.com/TerrexTech/go-common-models/model",
     "github.com/TerrexTech/go-commonutils/commonutil",
-    "github.com/TerrexTech/go-eventstore-models/model",
     "github.com/TerrexTech/go-kafkautils/kafka",
     "github.com/TerrexTech/go-mongoutils/mongo",
     "github.com/TerrexTech/uuuid",

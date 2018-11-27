@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"log"
 
-	"github.com/TerrexTech/go-eventstore-models/model"
+	"github.com/TerrexTech/go-common-models/model"
 	"github.com/TerrexTech/go-kafkautils/kafka"
 	"github.com/TerrexTech/go-mongoutils/mongo"
 	"github.com/pkg/errors"
@@ -20,7 +20,9 @@ type esQueryReqProdConfig struct {
 	mongoColl       *mongo.Collection
 	kafkaProdConfig *kafka.ProducerConfig
 	kafkaTopic      string
-	eventRespChan   <-chan model.Document
+
+	eventRespTopic string
+	eventRespChan  <-chan model.Document
 }
 
 // esQueryReqProducer produces the EventStoreQuery requests to get new events.
@@ -69,7 +71,7 @@ func esQueryReqProducer(config *esQueryReqProdConfig) error {
 					err = errors.Wrapf(
 						err,
 						"Error fetching max version for AggregateID %d",
-						doc.AggregateID,
+						config.aggID,
 					)
 					log.Println(err)
 					continue
@@ -77,11 +79,13 @@ func esQueryReqProducer(config *esQueryReqProdConfig) error {
 
 				// Create EventStoreQuery
 				esQuery := model.EventStoreQuery{
-					AggregateID:      doc.AggregateID,
+					AggregateID:      config.aggID,
 					AggregateVersion: currVersion,
 					CorrelationID:    doc.CorrelationID,
-					YearBucket:       2018,
-					UUID:             doc.UUID,
+					Topic:            config.eventRespTopic,
+					// Temporarily hardcoding until partitioning is implemented across application.
+					YearBucket: 2018,
+					UUID:       doc.UUID,
 				}
 				esMsg, err := json.Marshal(esQuery)
 				if err != nil {

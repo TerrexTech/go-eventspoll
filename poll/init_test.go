@@ -26,7 +26,6 @@ var _ = Describe("InitTest", func() {
 			MetaCollectionName: "test_coll",
 		}
 		ioConfig = IOConfig{
-			ReadConfig:  ReadConfig{},
 			KafkaConfig: kc,
 			MongoConfig: mc,
 		}
@@ -117,15 +116,5 @@ var _ = Describe("InitTest", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(eventsIO).To(BeNil())
 		})
-	})
-
-	It("should return error on invalid ReadConfig", func() {
-		// bool zero-value is false,
-		// so we dont need to set every value here
-		ioConfig.ReadConfig = ReadConfig{}
-
-		eventsIO, err := Init(ioConfig)
-		Expect(err).To(HaveOccurred())
-		Expect(eventsIO).To(BeNil())
 	})
 })

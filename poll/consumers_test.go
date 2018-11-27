@@ -132,7 +132,6 @@ var _ = Describe("Consumers", func() {
 			MetaCollectionName: "test_meta",
 		}
 		ioConfig = IOConfig{
-			ReadConfig:  ReadConfig{},
 			KafkaConfig: kc,
 			MongoConfig: mc,
 		}
@@ -148,33 +147,18 @@ var _ = Describe("Consumers", func() {
 
 	Context("Events are produced", func() {
 		Specify("Events should appear on their respective channel", func() {
-			deleteEvent := mockEvent(eventProdInput, eventsTopic, "delete")
-			insertEvent := mockEvent(eventProdInput, eventsTopic, "insert")
-			updateEvent := mockEvent(eventProdInput, eventsTopic, "update")
+			event := mockEvent(eventProdInput, eventsTopic, "test")
 
 			log.Println(
 				"Checking if the event-channels received the event, " +
 					"with timeout of 20 seconds",
 			)
 
-			ioConfig.ReadConfig = ReadConfig{
-				EnableDelete: true,
-				EnableInsert: true,
-				EnableUpdate: true,
-				EnableQuery:  false,
-			}
-
 			eventsIO, err := Init(ioConfig)
 			Expect(err).ToNot(HaveOccurred())
 
-			insertSuccess := false
-			var insertLock sync.RWMutex
-
-			updateSuccess := false
-			var updateLock sync.RWMutex
-
-			deleteSuccess := false
-			var deleteLock sync.RWMutex
+			success := false
+			var successLock sync.RWMutex
 
 			g := eventsIO.RoutinesGroup()
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -185,82 +169,28 @@ var _ = Describe("Consumers", func() {
 					select {
 					case <-ctx.Done():
 						return errors.New("timed out")
-					case eventResp := <-eventsIO.Insert():
+					case eventResp := <-eventsIO.Events():
 						if eventResp == nil {
 							continue
 						}
 						e := eventResp.Event
 						Expect(eventResp.Error).ToNot(HaveOccurred())
 
-						log.Println("An Event appeared on insert channel")
-						cidMatch := e.CorrelationID == insertEvent.CorrelationID
-						uuidMatch := e.UUID == insertEvent.UUID
+						log.Println("An Event appeared on event-channel")
+						cidMatch := e.CorrelationID == event.CorrelationID
+						uuidMatch := e.UUID == event.UUID
 						if uuidMatch && cidMatch {
-							log.Println("==> A matching Event appeared on insert channel")
-							insertLock.Lock()
-							insertSuccess = true
-							insertLock.Unlock()
+							log.Println("==> A matching Event appeared on event-channel")
+							successLock.Lock()
+							success = true
+							successLock.Unlock()
 							return nil
 						}
 					}
 				}
 			})
 
-			g.Go(func() error {
-				for {
-					select {
-					case <-ctx.Done():
-						return errors.New("timed out")
-					case eventResp := <-eventsIO.Update():
-						if eventResp == nil {
-							continue
-						}
-						e := eventResp.Event
-						Expect(eventResp.Error).ToNot(HaveOccurred())
-
-						log.Println("An Event appeared on update channel")
-						cidMatch := e.CorrelationID == updateEvent.CorrelationID
-						uuidMatch := e.UUID == updateEvent.UUID
-						if uuidMatch && cidMatch {
-							log.Println("==> A matching Event appeared on update channel")
-							updateLock.Lock()
-							updateSuccess = true
-							updateLock.Unlock()
-							return nil
-						}
-					}
-				}
-			})
-
-			g.Go(func() error {
-				for {
-					select {
-					case <-ctx.Done():
-						return errors.New("timed out")
-					case eventResp := <-eventsIO.Delete():
-						if eventResp == nil {
-							continue
-						}
-						e := eventResp.Event
-						Expect(eventResp.Error).ToNot(HaveOccurred())
-
-						log.Println("An Event appeared on delete channel")
-						cidMatch := e.CorrelationID == deleteEvent.CorrelationID
-						uuidMatch := e.UUID == deleteEvent.UUID
-						if uuidMatch && cidMatch {
-							log.Println("==> A matching Event appeared on delete channel")
-							deleteLock.Lock()
-							deleteSuccess = true
-							deleteLock.Unlock()
-							return nil
-						}
-					}
-				}
-			})
-
-			ds := false
-			is := false
-			us := false
+			es := false
 
 		resultTimeoutLoop:
 			for {
@@ -268,19 +198,11 @@ var _ = Describe("Consumers", func() {
 				case <-ctx.Done():
 					break resultTimeoutLoop
 				default:
-					deleteLock.RLock()
-					ds = deleteSuccess
-					deleteLock.RUnlock()
+					successLock.RLock()
+					es = success
+					successLock.RUnlock()
 
-					insertLock.RLock()
-					is = insertSuccess
-					insertLock.RUnlock()
-
-					updateLock.RLock()
-					us = updateSuccess
-					updateLock.RUnlock()
-
-					if ds && is && us {
+					if es {
 						break resultTimeoutLoop
 					}
 				}
@@ -289,36 +211,13 @@ var _ = Describe("Consumers", func() {
 			eventsIO.Close()
 			<-eventsIO.Wait()
 
-			Expect(is).To(BeTrue())
-			Expect(us).To(BeTrue())
-			Expect(ds).To(BeTrue())
+			Expect(es).To(BeTrue())
 		})
-	})
-
-	Specify("test delete channel", func() {
-		test := channelTest(eventProdInput, eventsTopic, ioConfig, "delete")
-		Expect(test).To(BeTrue())
-	})
-
-	Specify("test insert channel", func() {
-		test := channelTest(eventProdInput, eventsTopic, ioConfig, "insert")
-		Expect(test).To(BeTrue())
-	})
-
-	Specify("test update channel", func() {
-		test := channelTest(eventProdInput, eventsTopic, ioConfig, "update")
-		Expect(test).To(BeTrue())
-	})
-
-	Specify("test query channel", func() {
-		test := channelTest(eventProdInput, eventsTopic, ioConfig, "query")
-		Expect(test).To(BeTrue())
 	})
 
 	It("should update Aggregate-meta", func() {
 		// Generate a mock-Event
-		test := channelTest(eventProdInput, eventsTopic, ioConfig, "insert")
-		Expect(test).To(BeTrue())
+		mockEvent(eventProdInput, eventsTopic, "test")
 
 		mc := ioConfig.MongoConfig
 		c := &mongo.Collection{
@@ -344,13 +243,6 @@ var _ = Describe("Consumers", func() {
 		// Change ConsumerGroup so it doesn't interfere with other tests' groups
 		kc.EventCons.GroupName = "test-e-group-close-2"
 		kc.ESQueryResCons.GroupName = "test-eq-group-close-2"
-
-		ioConfig.ReadConfig = ReadConfig{
-			EnableDelete: false,
-			EnableInsert: true,
-			EnableQuery:  false,
-			EnableUpdate: false,
-		}
 
 		eventsIO, err := Init(ioConfig)
 		Expect(err).ToNot(HaveOccurred())
